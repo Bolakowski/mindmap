@@ -1,0 +1,2387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mind Map (accessible prototype)</title>
+<style>
+:root{
+  --page:#ffffff;
+  --ink:#111827;
+  --ink-soft:#4b5563;
+  --line:#cbd5e1;
+  --line-soft:#e2e8f0;
+  --surface:#f8fafc;
+  --accent:#1d4ed8;
+  --accent-ink:#ffffff;
+  --focus:#0b3d91;
+  --warn-bg:#fdf0c8;
+  --warn-border:#a16207;
+  --radius:10px;
+}
+*{box-sizing:border-box}
+html,body{min-height:100%}
+body{
+  margin:0;
+  background:var(--page);
+  color:var(--ink);
+  font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+h1,h2,h3{line-height:1.25;margin:0}
+button,input,select{font:inherit;color:inherit}
+
+/* Focus is never removed, only replaced with something stronger. */
+:focus{outline:3px solid var(--focus);outline-offset:2px}
+:focus:not(:focus-visible){outline:none}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+/* Fixed, not absolute. Positioned against the document, this link sat at the
+   top of the page, so once the page had scrolled at all, focusing it sent
+   focus somewhere above the visible area. Against the viewport it always
+   appears where the user is looking. */
+.skip{
+  position:fixed;top:0;left:0;z-index:100;
+  transform:translateY(-150%);
+  background:var(--ink);color:#fff;padding:.6rem 1rem;border-radius:0 0 var(--radius) 0;
+}
+.skip:focus{transform:translateY(0)}
+
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
+}
+
+.app{display:flex;flex-direction:column;min-height:100vh}
+
+.topbar{flex:0 0 auto}
+header .bar{
+  display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;
+  padding:.6rem .9rem;border-bottom:1px solid var(--line);background:var(--surface);
+}
+header .bar h1{font-size:1.05rem;font-weight:650;letter-spacing:-.01em}
+.grow{flex:1 1 auto;min-width:0}
+
+.btn{
+  background:var(--page);border:1px solid var(--line);border-radius:8px;
+  padding:.4rem .7rem;cursor:pointer;
+  min-height:24px;min-width:24px;      /* 2.5.8 Target Size (Minimum) */
+}
+.btn-pan{padding:.25rem;width:28px;height:28px;line-height:1}
+.btn:hover{background:var(--surface);border-color:var(--ink-soft)}
+.btn[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn-primary:hover{background:#173fa8;border-color:#173fa8}
+.btn-danger{color:#b91c1c;border-color:#e7b3b3}
+.btn-danger:hover{background:#fde2e2}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.group{display:flex;gap:.35rem;align-items:center;flex-wrap:wrap}
+/* One connected control instead of three separate buttons. */
+.seg{gap:0}
+.seg .btn{border-radius:0;margin-left:-1px}
+.seg .btn:first-child{border-radius:8px 0 0 8px;margin-left:0}
+.seg .btn:last-child{border-radius:0 8px 8px 0}
+.seg .btn[aria-pressed="true"]{position:relative;z-index:1}
+.caret{margin-left:.3rem;font-size:.7em;opacity:.7}
+/* The title shares the row rather than pushing everything to a second line. */
+#map-title{flex:1 1 8rem;min-width:4rem}
+.longword{display:inline}
+
+/* Below a half-screen window the row tightens rather than wrapping: padding
+   and gaps shrink, and the longest label drops its prefix. */
+@media (max-width:1180px){
+  header .bar{gap:.45rem;padding:.55rem .7rem}
+  .btn{padding:.35rem .55rem}
+  .longword{display:none}
+  #map-title{flex:1 1 6rem}
+}
+.group>.label{font-size:.82rem;color:var(--ink-soft)}
+
+.notice{
+  display:flex;gap:.6rem;align-items:flex-start;
+  background:var(--warn-bg);border-bottom:1px solid var(--warn-border);
+  padding:.55rem .9rem;font-size:.9rem;
+}
+.notice p{margin:0}
+
+main{flex:1 1 auto;min-height:26rem;display:flex}
+main.list{min-height:0}
+.pane{min-width:0;overflow:auto;padding:1rem 1.1rem;max-height:calc(100vh - 4rem);min-height:22rem}
+.pane-outline{flex:0 0 auto}
+.panehead{display:flex;align-items:center;gap:.5rem;margin-bottom:.7rem}
+.panehead h2{margin:0}
+.panehead .btn{padding:.2rem .5rem;font-size:.82rem}
+
+/* The divider is a real control, not decoration: it can be dragged, and it
+   can be operated from the keyboard with the arrow keys, which is what the
+   separator role promises a screen reader user. */
+.divider{
+  flex:0 0 10px;align-self:stretch;position:relative;
+  border:0;padding:0;background:var(--line-soft);cursor:col-resize;
+}
+.divider::before{
+  content:"";position:absolute;top:50%;left:50%;
+  width:2px;height:34px;transform:translate(-50%,-50%);
+  background:var(--ink-soft);border-radius:2px;
+}
+.divider:hover,.divider:focus-visible{background:var(--line)}
+.divider.is-dragging{background:var(--focus)}
+.pane+.pane{border-left:1px solid var(--line)}
+.pane-outline{flex:0 0 clamp(300px,38%,520px)}
+
+.pane h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-soft);margin-bottom:.7rem}
+
+/* ---------- Outline: this is the real tree ---------- */
+ul.tree,ul.tree ul{list-style:none;margin:0;padding:0}
+ul.tree ul{margin-left:1.15rem;border-left:1px solid var(--line-soft);padding-left:.55rem}
+li.item{margin:.15rem 0}
+.row{
+  display:flex;align-items:center;gap:.45rem;
+  padding:.3rem .5rem;border-radius:8px;border:2px solid transparent;cursor:pointer;
+}
+.row:hover{background:var(--surface)}
+.row.is-current{border-color:var(--focus)}
+.twisty{
+  flex:0 0 auto;width:24px;height:24px;display:inline-flex;
+  align-items:center;justify-content:center;color:var(--ink-soft);
+  font-size:.7rem;user-select:none;
+}
+.chip{
+  flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:1.5rem;height:1.5rem;border-radius:6px;border:2px solid;font-size:.8rem;
+}
+.label{min-width:0;overflow-wrap:break-word}
+.colorname{font-size:.72rem;color:var(--ink-soft);white-space:nowrap}
+.edit{
+  flex:1 1 auto;min-width:0;padding:.15rem .35rem;
+  border:2px solid var(--focus);border-radius:6px;background:#fff;
+}
+
+/* ---------- Map: a visual rendering of the same tree ---------- */
+.mapwrap{position:relative;flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:22rem;max-height:calc(100vh - 4rem)}
+.mapbar{
+  display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;
+  padding:.4rem .7rem;border-bottom:1px solid var(--line-soft);background:var(--page);
+}
+.mapbar .label{font-size:.78rem;text-transform:uppercase;letter-spacing:.09em;color:var(--ink-soft)}
+.mapscroll{
+  flex:1 1 auto;overflow:hidden;position:relative;cursor:grab;
+  background:radial-gradient(circle at 1px 1px,var(--line-soft) 1px,transparent 0) 0 0/22px 22px;
+}
+.mapscroll.is-panning{cursor:grabbing}
+.mapscroll.is-placing{cursor:crosshair}
+.canvas{position:absolute;left:50%;top:50%;transform-origin:0 0}
+.canvas svg{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.node{
+  position:absolute;transform:translate(-50%,-50%);
+  width:max-content;max-width:230px;min-width:5.5rem;
+  display:inline-flex;gap:.4rem;align-items:flex-start;
+  padding:.5rem .75rem;border:2px solid;border-radius:20px;
+  text-align:left;cursor:grab;touch-action:none;
+  box-shadow:0 1px 2px rgba(15,23,42,.10);
+}
+.node.is-root{border-radius:26px;padding:.7rem 1.1rem;font-weight:650;border-width:3px;max-width:260px}
+.node.is-leaf{border-radius:999px}
+.node.is-current{box-shadow:0 0 0 3px var(--focus),0 1px 2px rgba(15,23,42,.10)}
+.node.is-dragging{cursor:grabbing;opacity:.9;z-index:5}
+.node.is-moving{outline:3px dashed var(--focus);outline-offset:3px;z-index:5}
+.node .glyph{flex:0 0 auto;line-height:1.4}
+.node .ntext{min-width:0;overflow-wrap:break-word;word-break:normal;hyphens:auto;font-size:.92rem}
+.node .kids{font-size:.72rem;color:var(--ink-soft);white-space:nowrap}
+/* Mouse-only shortcuts. Keyboard users have Shift+Enter, Shift+F10 and the
+   toolbar, and a treeitem must not contain its own focus stops. */
+.node-add,.node-menu,.row-menu{
+  border-radius:50%;border:2px solid;background:var(--page);
+  align-items:center;justify-content:center;
+  font-size:.85rem;line-height:1;cursor:pointer;padding:0;
+}
+.node-add,.node-menu{position:absolute;width:24px;height:24px;display:none}
+.node-add{right:-12px;top:50%;transform:translateY(-50%)}
+.node-menu{left:-12px;top:50%;transform:translateY(-50%);font-size:.7rem}
+.node:hover .node-add,.node.is-current .node-add,
+.node:hover .node-menu,.node.is-current .node-menu{display:inline-flex}
+.row-menu{
+  flex:0 0 auto;width:24px;height:24px;font-size:.7rem;visibility:hidden;
+  border-color:var(--line);color:var(--ink-soft);display:inline-flex;
+}
+.row:hover .row-menu,.row.is-current .row-menu{visibility:visible}
+
+.map-edit{
+  position:absolute;transform:translate(-50%,-50%);z-index:6;
+  border:2px solid var(--focus);border-radius:20px;background:#fff;
+  padding:.5rem .75rem;width:190px;font:inherit;font-size:.92rem;
+}
+
+.menu{
+  position:fixed;z-index:60;min-width:15rem;
+  background:var(--page);border:1px solid var(--line);border-radius:10px;
+  box-shadow:0 8px 28px rgba(15,23,42,.20);padding:.3rem;
+}
+.menu button{
+  display:flex;align-items:center;gap:.55rem;width:100%;
+  background:none;border:0;border-radius:7px;padding:.42rem .6rem;
+  text-align:left;cursor:pointer;
+}
+.menu button:hover:not(:disabled){background:var(--surface)}
+.menu button:disabled{opacity:.45;cursor:not-allowed}
+.menu button .keys{margin-left:auto;color:var(--ink-soft);font-size:.78rem;white-space:nowrap}
+.menu hr{border:0;border-top:1px solid var(--line-soft);margin:.3rem .2rem}
+.menu .grouplabel{
+  padding:.35rem .6rem .15rem;font-size:.72rem;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--ink-soft);
+}
+.menu .swatch{
+  flex:0 0 auto;width:1.15rem;height:1.15rem;border-radius:5px;border:2px solid;
+  display:inline-flex;align-items:center;justify-content:center;font-size:.65rem;
+}
+.menu .tick{margin-left:auto}
+
+/* ---------- Maps list ---------- */
+.list{display:block;max-width:60rem;margin:0 auto;padding:1.5rem 1.1rem;width:100%}
+.maplist{list-style:none;margin:1rem 0 0;padding:0;display:grid;gap:.6rem}
+.maprow{
+  display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;
+  border:1px solid var(--line);border-radius:var(--radius);padding:.7rem .85rem;
+}
+.maprow .meta{font-size:.82rem;color:var(--ink-soft)}
+.empty{border:2px dashed var(--line);border-radius:var(--radius);padding:1.5rem;text-align:center;color:var(--ink-soft)}
+.list h2.lede{font-size:1.35rem;font-weight:600;letter-spacing:-.01em;margin-bottom:1.2rem;max-width:38rem}
+.cta{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1.6rem}
+.btn-big{padding:.7rem 1.15rem;font-size:1.02rem;border-radius:10px}
+.card{border:1px solid var(--line);border-radius:12px;padding:1rem 1.15rem;margin-bottom:1rem}
+.card h3{font-size:1rem;margin-bottom:.4rem}
+.card p{margin:.35rem 0;color:var(--ink-soft)}
+.card-recover{border-color:var(--warn-border);background:var(--warn-bg)}
+.card-recover p{color:var(--ink)}
+.card-legacy{border-color:#e7b3b3;background:#fde2e2}
+.card-legacy p{color:var(--ink)}
+.cardactions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.7rem}
+ol.steps{list-style:none;margin:.6rem 0 0;padding:0;display:grid;gap:.7rem}
+.step{display:flex;gap:.75rem;align-items:flex-start}
+.stepnum{
+  flex:0 0 auto;width:1.6rem;height:1.6rem;border-radius:50%;
+  background:var(--ink);color:#fff;display:inline-flex;
+  align-items:center;justify-content:center;font-size:.82rem;font-weight:650;
+}
+.step h3{font-size:.95rem;margin-bottom:.1rem}
+.step p{margin:0;color:var(--ink-soft);font-size:.93rem}
+.fineprint{font-size:.85rem;color:var(--ink-soft);margin-top:.8rem}
+ul.plainlist{margin:.2rem 0 .6rem;padding-left:1.1rem;color:var(--ink-soft)}
+ul.plainlist li{margin:.3rem 0}
+.notice-ok{background:#d5f5e3;border-bottom-color:#15803d}
+.dot{
+  display:inline-block;width:.5rem;height:.5rem;border-radius:50%;
+  background:#b91c1c;margin-left:.4rem;vertical-align:middle;
+}
+
+/* ---------- Dialog ---------- */
+.backdrop{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:1rem;z-index:50}
+.dialog{background:var(--page);border-radius:14px;max-width:36rem;width:100%;max-height:85vh;overflow:auto;padding:1.2rem 1.3rem;border:1px solid var(--line)}
+.dialog h2{font-size:1.1rem;margin-bottom:.6rem}
+.dialog dl{display:grid;grid-template-columns:auto 1fr;gap:.35rem .9rem;margin:.8rem 0}
+.dialog dt{font-weight:600;white-space:nowrap}
+.dialog dd{margin:0;color:var(--ink-soft)}
+kbd{
+  font:inherit;font-size:.85em;background:var(--surface);border:1px solid var(--line);
+  border-bottom-width:2px;border-radius:5px;padding:.05em .35em;
+}
+.dialog-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem;flex-wrap:wrap}
+.dialog h3{font-size:.78rem;margin:1.1rem 0 .3rem}
+ul.keylist{list-style:none;margin:.3rem 0 0;padding:0;display:grid;gap:.35rem}
+.keyrow{
+  display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;
+  border:1px solid var(--line-soft);border-radius:9px;padding:.45rem .6rem;
+}
+.keyname{flex:1 1 11rem;min-width:0}
+.keyvals{flex:0 1 auto;min-width:0}
+.keyrow .btn{padding:.25rem .55rem;font-size:.85rem}
+.keytest{
+  display:block;border:2px dashed var(--line);border-radius:10px;
+  padding:.8rem .9rem;margin:.4rem 0 .5rem;background:var(--surface);cursor:text;
+}
+.keytest:focus{border-style:solid;background:var(--page)}
+.keytest .fineprint{display:block;margin-top:.3rem}
+.testout{
+  margin:0 0 .4rem;padding:.5rem .7rem;border-radius:8px;
+  background:var(--surface);border:1px solid var(--line-soft);min-height:2.4rem;
+}
+
+@media (max-width:1000px){
+  main{flex-direction:column;min-height:0}
+  .mapwrap{border-top:1px solid var(--line)}
+  .pane,.mapwrap{max-height:none}
+  .pane-outline{flex-basis:auto !important}
+  .divider{display:none}
+  .mapwrap{min-height:70vh}
+  .pane-outline{flex:0 0 auto;min-height:0}
+}
+/* Very high zoom or a very narrow window: let everything breathe vertically
+   and rely on normal page scrolling rather than nested scroll areas. */
+@media (max-width:560px){
+  header .bar{gap:.4rem;padding:.5rem .6rem}
+  .btn{padding:.35rem .55rem;font-size:.92rem}
+  .mapwrap{min-height:80vh}
+}
+@media (prefers-reduced-motion:no-preference){
+  .row,.node,.btn{transition:background-color .12s ease,border-color .12s ease}
+}
+/* A dedicated print view, built fresh at print time. Printing the live map
+   would mean printing a panned, zoomed, clipped viewport; this renders the
+   whole map at its natural size instead and scales it to the page. */
+#print-root{display:none}
+@media print{
+  body > *{display:none !important}
+  body > #print-root{display:block !important}
+  body{font-size:11pt;background:#fff}
+  @page{margin:0.6in}
+  .print-head{border-bottom:2px solid #111827;padding-bottom:.4rem;margin-bottom:1rem}
+  .print-head h1{font-size:18pt;margin:0 0 .2rem}
+  .print-head .meta{font-size:10pt;color:#374151}
+  .print-mapwrap{page-break-inside:avoid;margin-bottom:.6rem}
+  .print-canvas{position:relative;transform-origin:0 0}
+  .print-node{
+    position:absolute;transform:translate(-50%,-50%);
+    width:max-content;max-width:230px;min-width:5.5rem;
+    display:inline-flex;gap:.4rem;align-items:flex-start;
+    padding:.5rem .75rem;border:2px solid;border-radius:20px;font-size:10pt;
+  }
+  .print-outline{page-break-inside:auto;margin-top:1.2rem;padding-top:.8rem;border-top:1px solid #cbd5e1}
+  .print-outline h2{font-size:14pt;margin:0 0 .5rem}
+  .print-outline ul{list-style:none;margin:0;padding:0}
+  .print-outline ul ul{margin-left:1rem;border-left:1px solid #cbd5e1;padding-left:.6rem}
+  .print-outline li{margin:.18rem 0}
+  .print-row{display:flex;gap:.4rem;align-items:baseline}
+  .print-chip{
+    flex:0 0 auto;width:1.1rem;height:1.1rem;border:2px solid;border-radius:4px;
+    display:inline-flex;align-items:center;justify-content:center;font-size:7pt;
+  }
+  .print-colorname{font-size:8pt;color:#4b5563}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#work">Skip to the map</a>
+<div class="app" id="app"></div>
+<div id="dialog-root"></div>
+<div id="menu-root"></div>
+<div id="print-root"></div>
+<p class="sr-only" id="live" role="status" aria-live="polite"></p>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+   Mind Map, accessible prototype
+   --------------------------------------------------------------------------
+   The point of this file is the DATA MODEL, not the drawing.
+
+   Every node stores parentId and order. The tree is authored, never guessed
+   from where boxes happen to sit on screen. Position is computed from the
+   tree at render time, so the visual layout can never disagree with the
+   reading order a screen reader gets.
+
+   The outline is the real interactive tree (ARIA tree pattern). The map is a
+   synchronised picture of it. Whichever pane is showing is the one that
+   carries the tree semantics; the other is hidden from assistive tech so
+   nothing is announced twice.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- palette */
+/* Fills are light and text is near-black, so every combination clears 14:1.
+   Borders clear 4.3:1 against their own fill, well past the 3:1 needed for
+   non-text contrast. Each color also carries a distinct glyph and a spoken
+   name, so color is never the only thing distinguishing two nodes. */
+const COLORS = [
+  { id:"slate",  name:"Slate",  fill:"#e5e9f0", line:"#475569", glyph:"\u25A0" },
+  { id:"blue",   name:"Blue",   fill:"#dbeafe", line:"#1d4ed8", glyph:"\u25CF" },
+  { id:"green",  name:"Green",  fill:"#d5f5e3", line:"#15803d", glyph:"\u25B2" },
+  { id:"amber",  name:"Amber",  fill:"#fdf0c8", line:"#a16207", glyph:"\u25C6" },
+  { id:"red",    name:"Red",    fill:"#fde2e2", line:"#b91c1c", glyph:"\u2716" },
+  { id:"purple", name:"Purple", fill:"#e9e2fb", line:"#6d28d9", glyph:"\u2605" },
+  { id:"teal",   name:"Teal",   fill:"#cdf3ee", line:"#0f766e", glyph:"\u25AC" },
+  { id:"pink",   name:"Pink",   fill:"#fbe0ee", line:"#be185d", glyph:"\u2726" }
+];
+const colorOf = id => COLORS.find(c => c.id === id) || COLORS[0];
+
+/* ------------------------------------------------------------- persistence */
+/* Work lives in FILES, the way a document does. The browser holds nothing
+   permanent.
+
+   The one exception is a recovery copy in sessionStorage, chosen over
+   localStorage on purpose: sessionStorage belongs to the browser tab, so it
+   is destroyed the moment the tab closes and is invisible to any other tab.
+   The next student to sit down opens a new tab and gets nothing. That is the
+   only storage design where "nothing is left behind" is guaranteed by the
+   browser rather than by remembering to press a button.
+
+   The honest limit: because the copy dies with the tab, it covers an
+   accidental reload or a wrong click, not a full browser crash. Trading
+   crash recovery for leaving no trace on a shared machine is the right way
+   round for a classroom. */
+const RECOVER_KEY = "a11y-mindmap:working";
+const LEGACY_KEY = "a11y-mindmap:v1";     // maps left behind by earlier versions
+const uid = () => "n" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
+function readRecovery(){
+  try{
+    const raw = sessionStorage.getItem(RECOVER_KEY);
+    return raw ? migrate(JSON.parse(raw)) : null;
+  }catch(e){ return null; }
+}
+function writeRecovery(map){
+  try{ sessionStorage.setItem(RECOVER_KEY, JSON.stringify(map)); return true; }
+  catch(e){ return false; }
+}
+function clearRecovery(){
+  try{ sessionStorage.removeItem(RECOVER_KEY); }catch(e){}
+}
+/* Anything an earlier build left in localStorage is surfaced on the start
+   screen so it can be saved or deleted, never silently kept. */
+function readLegacy(){
+  try{
+    const raw = localStorage.getItem(LEGACY_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed) ? parsed.map(migrate) : [];
+  }catch(e){ return []; }
+}
+function clearLegacy(){
+  try{ localStorage.removeItem(LEGACY_KEY); }catch(e){}
+}
+
+/* Older saves kept a title separate from the central idea. Carry the title
+   across only when the central idea was never renamed, so nobody loses the
+   name they typed, then drop the field for good. */
+function migrate(map){
+  if(map && map.title){
+    const root = map.nodes && map.nodes[map.rootId];
+    if(root && (root.label === "Central idea" || root.label === "Untitled map" || !root.label)){
+      root.label = map.title;
+    }
+    delete map.title;
+  }
+  return map;
+}
+
+/* ------------------------------------------------------------- data model */
+function newMap(title){
+  const rootId = uid();
+  return {
+    id: uid(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    rootId,
+    nodes: {
+      [rootId]: { id: rootId, label: title || "Central idea", parentId: null, order: 0, color: "slate", collapsed: false }
+    }
+  };
+}
+/* The central idea IS the map's name. One field, not two that drift apart. */
+const titleOf = map => {
+  const root = map.nodes[map.rootId];
+  return (root && root.label) || "Untitled map";
+};
+
+const childrenOf = (map, id) =>
+  Object.values(map.nodes)
+    .filter(n => n.parentId === id)
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+
+function depthOf(map, id){
+  let d = 0, cur = map.nodes[id];
+  while(cur && cur.parentId){ d++; cur = map.nodes[cur.parentId]; }
+  return d;
+}
+/* Depth-first list of everything currently on screen, which is also the
+   order a screen reader will read. One list drives both panes. */
+function visibleList(map){
+  const out = [];
+  (function walk(id){
+    const node = map.nodes[id];
+    if(!node) return;
+    out.push(node);
+    if(!node.collapsed) childrenOf(map, id).forEach(c => walk(c.id));
+  })(map.rootId);
+  return out;
+}
+function descendants(map, id){
+  const out = [];
+  (function walk(pid){ childrenOf(map, pid).forEach(c => { out.push(c); walk(c.id); }); })(id);
+  return out;
+}
+function resequence(map, parentId){
+  childrenOf(map, parentId).forEach((c, i) => { c.order = i; });
+}
+function addChild(map, parentId, label){
+  const parent = map.nodes[parentId];
+  if(!parent) return null;
+  const node = {
+    id: uid(),
+    label: label || "New idea",
+    parentId,
+    order: childrenOf(map, parentId).length,
+    color: parent.parentId ? parent.color : "blue",
+    collapsed: false
+  };
+  map.nodes[node.id] = node;
+  parent.collapsed = false;
+  return node;
+}
+function removeNode(map, id){
+  if(id === map.rootId) return 0;
+  const doomed = [id, ...descendants(map, id).map(n => n.id)];
+  const parentId = map.nodes[id].parentId;
+  doomed.forEach(d => { delete map.nodes[d]; });
+  resequence(map, parentId);
+  return doomed.length;
+}
+
+/* --------------------------------------------------------------- app state */
+let openMap = null;                // the one document currently open
+let savedFingerprint = null;       // what the map looked like when last saved to a file
+let legacyMaps = readLegacy();
+let view = "both";                 // "both" | "outline" | "map"
+let focusId = null;                // node the keyboard is on
+let editingId = null;
+let pendingFocus = null;           // css selector to restore focus to after render
+
+const say = msg => { document.getElementById("live").textContent = msg; };
+const currentMap = () => openMap;
+const fingerprint = map => map ? JSON.stringify(map.nodes) + "|" + map.rootId : null;
+const hasUnsavedWork = () => !!openMap && fingerprint(openMap) !== savedFingerprint;
+
+function commit(message){
+  if(openMap){
+    openMap.updatedAt = Date.now();
+    ensurePositions(openMap);
+    writeRecovery(openMap);
+  }
+  render();
+  if(message) say(message);
+}
+
+/* The browser will not let a page run its own dialog here, so this is the
+   generic "leave site?" prompt. It exists so the common way out of the tool
+   is saving, not walking away. */
+window.addEventListener("beforeunload", e => {
+  if(!hasUnsavedWork()) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
+
+function finishUp(){
+  if(hasUnsavedWork()){
+    const choice = confirm(
+      "This map has changes that are not in a file yet.\n\n" +
+      "OK to save it first.\nCancel to close without saving.");
+    if(choice){ downloadMap(openMap); }
+  }
+  clearRecovery();
+  try{ sessionStorage.removeItem(WIDTH_KEY); }catch(e){}
+  openMap = null;
+  savedFingerprint = null;
+  focusId = null;
+  editingId = null;
+  placing = null; placeOrigin = null;
+  render();
+  say("Closed. Nothing is left on this computer.");
+}
+
+/* ------------------------------------------------------------ tree layout */
+/* Every node stores its own absolute x and y, and once a node has a position
+   it keeps it. Nothing already on the map moves because something else was
+   added.
+
+   The earlier version computed all positions from the tree on every render:
+   the circle was carved into wedges sized by how many leaves each branch
+   held. That is tidy on paper and unusable in practice, because adding one
+   idea changes the leaf counts above it, which resizes every wedge, which
+   moves every node on screen. Anything the student had arranged by hand was
+   offset from a base that had just shifted underneath it, so each new idea
+   scattered the map a little further.
+
+   So positions are data now, like labels and colors. New ideas are placed
+   into free space near their parent; everything else is left alone. Nothing
+   rearranges the whole map, and a single branch only moves when its own menu
+   is used to ask for it.
+
+   None of this affects reading order. Structure still lives in parentId and
+   order, so a screen reader walks the tree and never looks at coordinates. */
+const CHILD_R = 215;                // how far a new idea sits from its parent
+const HALF_W = 105, HALF_H = 34;    // generous box, used only to size the canvas
+const PAD = 40;
+const RADII = [0, 240, 430, 600, 750];
+const radiusAt = d => d < RADII.length ? RADII[d] : RADII[RADII.length - 1] + 150 * (d - RADII.length + 1);
+
+/* The tidy radial arrangement, used to lay out a map that has no positions
+   yet. Existing positions are never recomputed from it. */
+function radialLayout(map){
+  const base = {};
+  const leafCount = id => {
+    const kids = childrenOf(map, id);
+    if(!kids.length) return 1;
+    return kids.reduce((s, c) => s + leafCount(c.id), 0);
+  };
+  (function place(id, a0, a1, depth){
+    const angle = (a0 + a1) / 2, r = radiusAt(depth);
+    base[id] = { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+    const kids = childrenOf(map, id);
+    if(!kids.length) return;
+    const total = kids.reduce((s, c) => s + leafCount(c.id), 0) || 1;
+    let a = a0;
+    kids.forEach(c => {
+      const share = (a1 - a0) * (leafCount(c.id) / total);
+      const inset = Math.min(share * 0.12, 0.12);   // a little air between wedges
+      place(c.id, a + inset, a + share - inset, depth + 1);
+      a += share;
+    });
+  })(map.rootId, -Math.PI / 2, Math.PI * 1.5, 0);
+  return base;
+}
+
+/* Place one new idea near its parent, in the emptiest direction available and
+   pointing away from the grandparent, then push it out if it landed on top of
+   something. Nothing else on the map is touched. */
+function placeNear(map, node){
+  const parent = map.nodes[node.parentId];
+  if(!parent){ node.x = 0; node.y = 0; return; }
+  if(typeof parent.x !== "number") placeNear(map, parent);
+
+  const taken = [];
+  const gp = parent.parentId ? map.nodes[parent.parentId] : null;
+  if(gp && typeof gp.x === "number") taken.push(Math.atan2(gp.y - parent.y, gp.x - parent.x));
+  childrenOf(map, parent.id).forEach(c => {
+    if(c.id !== node.id && typeof c.x === "number") taken.push(Math.atan2(c.y - parent.y, c.x - parent.x));
+  });
+
+  let angle;
+  if(!taken.length){
+    angle = 0;                                   // first child of the root: to the right
+  }else{
+    // Widest gap between the directions already in use.
+    const sorted = taken.slice().sort((a, b) => a - b);
+    let best = 0, bestGap = -1;
+    for(let i = 0; i < sorted.length; i++){
+      const a = sorted[i];
+      const b = (i + 1 < sorted.length) ? sorted[i + 1] : sorted[0] + Math.PI * 2;
+      const gap = b - a;
+      if(gap > bestGap){ bestGap = gap; best = a + gap / 2; }
+    }
+    angle = best;
+  }
+
+  const others = Object.values(map.nodes).filter(n => n.id !== node.id && typeof n.x === "number");
+  const clashes = (x, y) => others.some(o => Math.abs(o.x - x) < 150 && Math.abs(o.y - y) < 54);
+  for(let attempt = 0; attempt < 12; attempt++){
+    // Widen the search: further out, then fanned slightly to each side.
+    const r = CHILD_R + Math.floor(attempt / 3) * 70;
+    const spread = [0, 0.42, -0.42][attempt % 3];
+    const x = parent.x + Math.cos(angle + spread) * r;
+    const y = parent.y + Math.sin(angle + spread) * r;
+    if(!clashes(x, y) || attempt === 11){ node.x = x; node.y = y; return; }
+  }
+}
+
+/* Files from the previous version carried nudges (dx, dy) instead of
+   positions. Fold those in once, then never again. */
+function ensurePositions(map){
+  const all = Object.values(map.nodes);
+  const missing = all.filter(n => typeof n.x !== "number" || typeof n.y !== "number");
+  if(!missing.length) return;
+
+  if(missing.length === all.length){
+    const base = radialLayout(map);
+    (function apply(id, ox, oy){
+      const n = map.nodes[id];
+      const dx = ox + (n.dx || 0), dy = oy + (n.dy || 0);
+      n.x = base[id].x + dx;
+      n.y = base[id].y + dy;
+      delete n.dx; delete n.dy;
+      childrenOf(map, id).forEach(c => apply(c.id, dx, dy));
+    })(map.rootId, 0, 0);
+    return;
+  }
+  // Just a few new ideas: place each one, leaving the rest of the map alone.
+  missing.forEach(n => placeNear(map, n));
+}
+
+/* There is deliberately nothing that re-arranges a map, or part of one, after
+   it has been laid out. Any such button destroys work the student did by
+   hand, and with no undo a mis-click is unrecoverable. It also cannot be
+   described honestly: "tidy" suggests a small improvement, while what the
+   code does is throw the positions away and compute new ones. Someone who
+   dislikes where an idea sits drags it, or moves it with the arrow keys,
+   which leaves them in charge of where it ends up. */
+
+/* Move an idea and its whole branch by the same amount, so the branch keeps
+   its shape. */
+function shiftBranch(map, id, dx, dy){
+  [map.nodes[id], ...descendants(map, id)].forEach(n => { n.x += dx; n.y += dy; });
+}
+
+function layout(map){
+  ensurePositions(map);
+  const pos = {};
+  visibleList(map).forEach(n => { pos[n.id] = { x: n.x, y: n.y }; });
+
+  // Coordinates can be negative; the canvas is panned with a transform rather
+  // than normalized, so a move that shifts everything equally still shows.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  Object.values(pos).forEach(p => {
+    minX = Math.min(minX, p.x - HALF_W); maxX = Math.max(maxX, p.x + HALF_W);
+    minY = Math.min(minY, p.y - HALF_H); maxY = Math.max(maxY, p.y + HALF_H);
+  });
+  return {
+    pos,
+    minX: minX - PAD, minY: minY - PAD,
+    width: maxX - minX + PAD * 2,
+    height: maxY - minY + PAD * 2
+  };
+}
+
+/* ------------------------------------------------------------ tiny helpers */
+function el(tag, props, ...kids){
+  const node = document.createElement(tag);
+  for(const [k, v] of Object.entries(props || {})){
+    if(v === null || v === undefined || v === false) continue;
+    if(k === "class") node.className = v;
+    else if(k === "text") node.textContent = v;
+    else if(k === "html") node.innerHTML = v;
+    else if(k.startsWith("on")) node.addEventListener(k.slice(2).toLowerCase(), v);
+    else if(k === "style") node.setAttribute("style", v);
+    else node.setAttribute(k, v === true ? "" : String(v));
+  }
+  kids.flat().forEach(c => { if(c !== null && c !== undefined && c !== false) node.append(c); });
+  return node;
+}
+const fmtDate = ts => new Date(ts).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+
+/* Every node's spoken name says the same three things in the same order,
+   so a listener can predict the shape of what they are about to hear. */
+function accessibleName(map, node){
+  const kids = childrenOf(map, node.id).length;
+  const parts = [node.label, colorOf(node.color).name];
+  if(node.id === map.rootId) parts.push("central idea");
+  parts.push(kids === 0 ? "no sub-ideas" : kids === 1 ? "1 sub-idea" : kids + " sub-ideas");
+  return parts.join(", ");
+}
+
+/* ============================ SCREEN: start / read me ==================== */
+function renderStart(){
+  const app = document.getElementById("app");
+  const recovered = readRecovery();
+
+  const openIt = map => {
+    openMap = map;
+    savedFingerprint = fingerprint(map);
+    focusId = map.rootId;
+    view = "both"; panX = 0; panY = 0; zoom = 1;
+    pendingFocus = "#map-title";
+    writeRecovery(map);
+    render();
+  };
+
+  const step = (n, title, body) => el("li", { class:"step" },
+    el("span", { class:"stepnum", "aria-hidden":"true" }, n),
+    el("div", {}, el("h3", { text:title }), el("p", { text:body }))
+  );
+
+  app.replaceChildren(
+    el("header", { class:"topbar" },
+     el("div", { class:"bar" },
+      el("h1", { text:"Mind Map" }),
+      el("span", { class:"grow" }),
+      el("button", { class:"btn", onclick:openAccessibility }, "Accessibility"),
+      el("button", { class:"btn", onclick:openShortcuts }, "Shortcuts")
+     )
+    ),
+    el("main", { class:"list", id:"work" },
+      el("h2", { class:"lede", text:"Build a map of your ideas, then save it as a file." }),
+
+      recovered ? el("section", { class:"card card-recover", "aria-labelledby":"rec-h" },
+        el("h3", { id:"rec-h", text:"Unsaved work from this tab" }),
+        el("p", {}, "\u201C" + titleOf(recovered) + "\u201D was open when this page reloaded. It has not been saved to a file."),
+        el("div", { class:"cardactions" },
+          el("button", { class:"btn btn-primary", onclick:() => openIt(recovered) }, "Pick up where I left off"),
+          el("button", { class:"btn", onclick:() => { clearRecovery(); render(); say("Discarded."); } }, "Discard it")
+        )
+      ) : null,
+
+      el("div", { class:"cta" },
+        el("button", { class:"btn btn-primary btn-big", onclick:() => openIt(newMap("Central idea")) }, "Start a new map"),
+        el("button", { class:"btn btn-big", onclick:openImport }, "Open a map file")
+      ),
+
+      el("section", { class:"card", "aria-labelledby":"how-h" },
+        el("h3", { id:"how-h", text:"How your work is saved" }),
+        el("ol", { class:"steps" },
+          step("1", "Build your map", "Add ideas, drag them around, group them into branches. Everything you do is kept as you go."),
+          step("2", "Save to a file", "Choose Save to file. You get a .mindmap.json file, the same as saving a document. Put it wherever you keep your coursework."),
+          step("3", "Open it again anywhere", "Bring that file back with Open a map file, on any computer. The file is the only thing that matters."),
+          step("4", "Close when you are done", "Choose Finish and close. Nothing about your map stays on the computer you were using.")
+        ),
+        el("p", { class:"fineprint" },
+          "While you are working, a copy is kept in this browser tab so a stray reload does not lose anything. " +
+          "That copy belongs to the tab and disappears the moment you close it, so the next person to use this computer cannot see your work. " +
+          "It will not survive the browser quitting, which is why the file is what you rely on.")
+      ),
+
+      el("section", { class:"card", "aria-labelledby":"ally-h" },
+        el("h3", { id:"ally-h", text:"Using this without a mouse" }),
+        el("p", {}, "The map has a matching outline, and every action works in both. Nothing is mouse-only, and nothing is keyboard-only."),
+        el("div", { class:"cardactions" },
+          el("button", { class:"btn", onclick:openAccessibility }, "What to expect"),
+          el("button", { class:"btn", onclick:openShortcuts }, "Keyboard shortcuts")
+        )
+      ),
+
+      legacyMaps.length ? el("section", { class:"card card-legacy", "aria-labelledby":"leg-h" },
+        el("h3", { id:"leg-h", text:"Maps left on this computer by an older version" }),
+        el("p", {}, legacyMaps.length + (legacyMaps.length === 1 ? " map is" : " maps are") +
+          " still stored in this browser from a previous version of this tool. Save anything worth keeping, then clear them so they are not left for the next person."),
+        el("ul", { class:"maplist" }, legacyMaps.map(m => el("li", { class:"maprow" },
+          el("span", { class:"grow" }, titleOf(m)),
+          el("button", { class:"btn", onclick:() => downloadMap(m) }, "Save to file", el("span", { class:"sr-only" }, " " + titleOf(m))),
+          el("button", { class:"btn", onclick:() => openIt(m) }, "Open", el("span", { class:"sr-only" }, " " + titleOf(m)))
+        ))),
+        el("div", { class:"cardactions" },
+          el("button", { class:"btn btn-danger", onclick:() => {
+            if(!confirm("Delete all " + legacyMaps.length + " old maps from this browser? Anything you have not saved to a file will be gone.")) return;
+            clearLegacy(); legacyMaps = [];
+            render(); say("Old maps cleared from this computer.");
+          }}, "Clear them all from this computer")
+        )
+      ) : null
+    )
+  );
+}
+const renderList = renderStart;   // older call sites
+
+
+/* ================================ SCREEN: editor ========================= */
+function renderEditor(){
+  const map = currentMap();
+  const app = document.getElementById("app");
+  if(!focusId || !map.nodes[focusId]) focusId = map.rootId;
+
+  const viewBtn = (id, label) => el("button", {
+    class:"btn", "aria-pressed": view === id ? "true" : "false",
+    onclick:() => {
+      view = id;
+      pendingFocus = '[data-node-id="' + focusId + '"]';
+      render();
+      say(label + " view.");
+    }
+  }, label);
+
+  const node = map.nodes[focusId];
+
+  app.replaceChildren(
+    el("header", { class:"topbar" },
+     el("h1", { class:"sr-only" }, titleOf(map) + " \u2014 Mind Map"),
+     el("div", { class:"bar" },
+      el("button", { class:"btn", onclick:finishUp },
+        el("span", { class:"longword" }, "Finish and "), "close",
+        hasUnsavedWork() ? el("span", { class:"dot", "aria-hidden":"true" }) : null,
+        hasUnsavedWork() ? el("span", { class:"sr-only" }, ", you have unsaved changes") : null),
+      el("label", { class:"sr-only", for:"map-title" }, "Central idea, which is also the map's name"),
+      el("input", {
+        id:"map-title", style:"font-weight:650;font-size:1.02rem;border:1px solid transparent;background:transparent;border-radius:8px;padding:.3rem .45rem",
+        value: titleOf(map),
+        onchange: e => {
+          map.nodes[map.rootId].label = e.target.value.trim() || "Central idea";
+          commit("Central idea renamed to " + titleOf(map) + ".");
+        }
+      }),
+      el("div", { class:"group seg", role:"group", "aria-label":"View" }, viewBtn("both","Both"), viewBtn("outline","Outline"), viewBtn("map","Map")),
+      el("button", { class:"btn", onclick:() => { addChildAndEdit(focusId); } }, "Add"),
+      (function(){
+        const b = el("button", { class:"btn", "aria-haspopup":"menu", onclick:() => openNodeMenu(focusId, b) },
+          "Actions", el("span", { class:"sr-only" }, " for " + node.label),
+          el("span", { class:"caret", "aria-hidden":"true" }, "\u25BE"));
+        return b;
+      })(),
+      barMenuButton("File", [
+        { label:"Save to file", note:"map, to reopen", run:() => downloadMap(map) },
+        { label:"Print or save as PDF", note:"to hand in", run:printMap },
+        { label:"Save outline as text", run:() => downloadOutline(map) },
+        "-",
+        { label:"Open a different file", run:openImport }
+      ]),
+      barMenuButton("Help", [
+        { label:"Accessibility", run:openAccessibility },
+        { label:"Keyboard shortcuts", run:openShortcuts }
+      ]),
+      el("button", { class:"btn btn-primary", onclick:() => downloadMap(map) }, "Save")
+     ),
+     el("div", { class:"notice" + (hasUnsavedWork() ? "" : " notice-ok") },
+       el("p", {}, hasUnsavedWork()
+         ? "Not saved to a file yet. Your work is safe in this tab, but choose Save to file to keep it."
+         : "Saved to a file. Nothing is sent anywhere, and nothing stays on this computer once you close.")
+     )
+    ),
+    el("main", { id:"work" },
+      (view === "both" || view === "outline") ? renderOutlinePane(map, view !== "map") : null,
+      view === "both" ? renderDivider() : null,
+      (view === "both" || view === "map") ? renderMapPane(map, view === "map") : null
+    )
+  );
+}
+
+/* --------------------------------------------------------------- divider */
+function renderDivider(){
+  const bar = el("div", {
+    class:"divider",
+    role:"separator", "aria-orientation":"vertical",
+    "aria-label":"Outline width. Use the left and right arrow keys to resize.",
+    "aria-valuenow": outlineW, "aria-valuemin": MIN_W, "aria-valuemax": MAX_W,
+    tabindex:"0",
+    onkeydown: e => {
+      const step = e.shiftKey ? 8 : 40;
+      if(e.key === "ArrowLeft"){ e.preventDefault(); setOutlineW(outlineW - step); pendingFocus = ".divider"; render(); }
+      else if(e.key === "ArrowRight"){ e.preventDefault(); setOutlineW(outlineW + step); pendingFocus = ".divider"; render(); }
+      else if(e.key === "Home"){ e.preventDefault(); setOutlineW(MIN_W); pendingFocus = ".divider"; render(); }
+      else if(e.key === "End"){ e.preventDefault(); setOutlineW(MAX_W); pendingFocus = ".divider"; render(); }
+      else if(e.key === "Enter" || e.key === " "){ e.preventDefault(); hideOutline(); }
+    },
+    ondblclick: () => hideOutline(),
+    onpointerdown: e => {
+      if(e.button !== 0 && e.pointerType === "mouse") return;
+      e.preventDefault();
+      const pane = document.querySelector(".pane-outline");
+      const left = pane.getBoundingClientRect().left;
+      bar.classList.add("is-dragging");
+      const onMove = ev => {
+        // Style the pane directly while dragging; a full render per pixel
+        // would be wasteful and would fight the pointer.
+        const w = Math.min(MAX_W, Math.max(MIN_W, ev.clientX - left));
+        pane.style.flexBasis = w + "px";
+        bar.setAttribute("aria-valuenow", String(Math.round(w)));
+      };
+      const onUp = ev => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+        bar.classList.remove("is-dragging");
+        setOutlineW(ev.clientX - left, true);
+        render();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }
+  });
+  return bar;
+}
+
+/* Hiding the outline is the same state as the Map view, so it reuses it
+   rather than adding a second way to describe one thing. */
+function hideOutline(){
+  view = "map";
+  pendingFocus = ".mapbar button";
+  render();
+  say("Outline hidden. Use Show outline, or the Both view, to bring it back.");
+}
+function showOutline(){
+  view = "both";
+  pendingFocus = ".divider";
+  render();
+  say("Outline shown.");
+}
+
+/* -------------------------------------------------- outline pane (the tree) */
+function renderOutlinePane(map, isPrimary){
+  const list = visibleList(map);
+
+  function itemFor(node){
+    const kids = childrenOf(map, node.id);
+    const c = colorOf(node.color);
+    const isCurrent = node.id === focusId;
+    const expanded = kids.length ? (node.collapsed ? "false" : "true") : null;
+
+    const row = (editingId === node.id && editingPane === "outline")
+      ? el("div", { class:"row is-current" },
+          el("span", { class:"twisty", "aria-hidden":"true" }, kids.length ? (node.collapsed ? "\u25B6" : "\u25BC") : "\u00B7"),
+          el("span", { class:"chip", "aria-hidden":"true", style:"background:"+c.fill+";border-color:"+c.line }, c.glyph),
+          el("input", {
+            class:"edit", id:"inline-edit", value:node.label,
+            "aria-label":"Rename idea",
+            onkeydown: e => {
+              if(e.key === "Enter"){ e.preventDefault(); finishEdit(e.target.value); }
+              else if(e.key === "Escape"){ e.preventDefault(); cancelEdit(); }
+            },
+            onblur: e => { if(editingId === node.id) finishEdit(e.target.value); }
+          })
+        )
+      : el("div", {
+          class:"row" + (isCurrent ? " is-current" : ""),
+          role: isPrimary ? "treeitem" : null,
+          "aria-level": isPrimary ? depthOf(map, node.id) + 1 : null,
+          "aria-expanded": isPrimary ? expanded : null,
+          "aria-selected": isPrimary ? (isCurrent ? "true" : "false") : null,
+          "aria-label": isPrimary ? accessibleName(map, node) : null,
+          tabindex: isPrimary ? (isCurrent ? "0" : "-1") : null,
+          "data-node-id": isPrimary ? node.id : null,
+          onclick: e => { e.stopPropagation(); focusId = node.id; pendingFocus = '[data-node-id="'+node.id+'"]'; render(); },
+          ondblclick: e => { e.stopPropagation(); startEdit(node.id, "outline"); },
+          oncontextmenu: e => { e.preventDefault(); e.stopPropagation(); focusId = node.id; openNodeMenu(node.id, e.currentTarget); },
+          onkeydown: isPrimary ? onTreeKey : null
+        },
+          el("span", {
+            class:"twisty", "aria-hidden":"true",
+            onclick: e => { if(kids.length){ e.stopPropagation(); toggle(node.id); } }
+          }, kids.length ? (node.collapsed ? "\u25B6" : "\u25BC") : "\u00B7"),
+          el("span", { class:"chip", "aria-hidden":"true", style:"background:"+c.fill+";border-color:"+c.line }, c.glyph),
+          el("span", { class:"label" }, node.label),
+          el("span", { class:"colorname", "aria-hidden":"true" }, c.name),
+          (function(){
+            const b = el("button", {
+              type:"button", class:"row-menu", tabindex:"-1", "aria-hidden":"true",
+              title:"Actions for this idea",
+              onclick: e => { e.preventDefault(); e.stopPropagation(); focusId = node.id; openNodeMenu(node.id, b); }
+            }, "\u22EF");
+            return b;
+          })()
+        );
+
+    return el("li", { class:"item", role: isPrimary ? "none" : null },
+      row,
+      kids.length && !node.collapsed
+        ? el("ul", { role: isPrimary ? "group" : null }, kids.map(itemFor))
+        : null
+    );
+  }
+
+  return el("section", {
+    class:"pane pane-outline", "aria-label":"Outline",
+    style: view === "both" ? "flex-basis:" + outlineW + "px" : "flex:1 1 auto"
+  },
+    el("div", { class:"panehead" },
+      el("h2", { text:"Outline" }),
+      el("span", { class:"grow" }),
+      view === "both"
+        ? el("button", { class:"btn", onclick:hideOutline }, "Hide",
+            el("span", { class:"sr-only" }, " the outline"))
+        : null
+    ),
+    el("ul", {
+      class:"tree",
+      role: isPrimary ? "tree" : null,
+      "aria-label": isPrimary ? "Ideas" : null,
+      "aria-hidden": isPrimary ? null : "true"
+    }, itemFor(map.nodes[map.rootId])),
+    el("p", { class:"colorname", style:"margin-top:1rem" },
+      list.length + (list.length === 1 ? " idea shown." : " ideas shown.") + " Press ? for keyboard help.")
+  );
+}
+
+/* ------------------------------------------ map pane (a picture of the tree) */
+/* Pan and zoom are a transform on the canvas, not scrollbars, so the map can
+   extend in any direction and coordinates are free to go negative. */
+let zoom = 1, panX = 0, panY = 0;
+/* 2.5.7 Dragging Movements. Everything reachable by dragging is also
+   reachable with plain clicks: "Move to a spot" picks a cloud up and the
+   next click puts it down, and the pan buttons move the view. A keyboard
+   path does not satisfy this criterion, which is why these exist even
+   though Alt plus the arrow keys already covers the meaningful moves. */
+let placing = null;        // id of the cloud currently being moved
+let placeOrigin = null;   // where it sat when the move started, so Escape can undo
+
+function nudgePan(dx, dy){
+  panX += dx; panY += dy;
+  render();
+  say("Map moved " + (dx > 0 ? "right" : dx < 0 ? "left" : dy > 0 ? "down" : "up") + ".");
+}
+function startPlacing(id){
+  const node = currentMap().nodes[id];
+  placing = id;
+  placeOrigin = { x: node.x, y: node.y };
+  focusId = id;
+  pendingFocus = '[data-node-id="' + id + '"]';
+  render();
+  say("Moving " + node.label + ". Use the arrow keys to nudge it, or click where you want it. " +
+      "Enter to drop it, Escape to put it back.");
+}
+/* Arrow keys nudge the cloud instead of walking the tree while a move is in
+   progress. That makes the move finishable without a pointer, which the
+   click-to-place version on its own was not. Holding Shift moves in smaller
+   steps for lining things up. */
+function nudgePlacing(dx, dy){
+  const map = currentMap();
+  const node = map.nodes[placing];
+  if(!node) return;
+  shiftBranch(map, placing, dx, dy);
+  writeRecovery(map);
+  pendingFocus = '[data-node-id="' + placing + '"]';
+  render();
+}
+function confirmPlacing(){
+  if(!placing) return;
+  const map = currentMap();
+  const label = map.nodes[placing].label;
+  placing = null; placeOrigin = null;
+  pendingFocus = '[data-node-id="' + focusId + '"]';
+  commit(label + " dropped. Its place in the outline has not changed.");
+}
+function cancelPlacing(quiet){
+  if(!placing) return;
+  const map = currentMap();
+  const node = map.nodes[placing];
+  if(node && placeOrigin){          // put it back exactly where it was
+    shiftBranch(map, placing, placeOrigin.x - node.x, placeOrigin.y - node.y);
+  }
+  const id = placing;
+  placing = null; placeOrigin = null;
+  pendingFocus = '[data-node-id="' + id + '"]';
+  render();
+  if(!quiet) say("Move canceled. Put back where it was.");
+}
+function placeAt(clientX, clientY, scroll){
+  const map = currentMap();
+  const id = placing;
+  const node = map.nodes[id];
+  if(!node){ placing = null; return; }
+  const r = scroll.getBoundingClientRect();
+  const wantX = (clientX - r.left - r.width / 2 - panX) / zoom;
+  const wantY = (clientY - r.top - r.height / 2 - panY) / zoom;
+  shiftBranch(map, id, wantX - node.x, wantY - node.y);
+  placing = null; placeOrigin = null;
+  focusId = id;
+  pendingFocus = '[data-node-id="' + id + '"]';
+  commit(node.label + " moved. Its place in the outline has not changed.");
+}
+
+function renderMapPane(map, isPrimary){
+  const { pos, minX, minY, width, height } = layout(map);
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
+  svg.setAttribute("viewBox", minX + " " + minY + " " + width + " " + height);
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.style.left = minX + "px";
+  svg.style.top = minY + "px";
+
+  const list = visibleList(map);
+  const paths = {};
+  list.forEach(n => {
+    if(!n.parentId || !pos[n.parentId]) return;
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", colorOf(n.color).line);
+    path.setAttribute("stroke-linecap", "round");
+    // Branches thin out as they go, the way a real mind map reads.
+    path.setAttribute("stroke-width", String(Math.max(1.5, 5 - depthOf(map, n.id))));
+    path.setAttribute("d", curve(pos[n.parentId], pos[n.id]));
+    paths[n.id] = path;
+    svg.append(path);
+  });
+
+  const nodeEls = {};
+  const boxes = [];
+  list.forEach(n => {
+    const c = colorOf(n.color);
+    const kids = childrenOf(map, n.id);
+    const isCurrent = n.id === focusId;
+
+    // Renaming happens where you are. The map gets its own editor so that
+    // Shift+Enter never yanks you into a different view mid-thought.
+    if(editingId === n.id && editingPane === "map"){
+      boxes.push(el("input", {
+        class:"map-edit", id:"inline-edit", value:n.label, "aria-label":"Rename idea",
+        style:"left:" + pos[n.id].x + "px;top:" + pos[n.id].y + "px",
+        onpointerdown: e => e.stopPropagation(),
+        onkeydown: e => {
+          if(e.key === "Enter"){ e.preventDefault(); finishEdit(e.target.value); }
+          else if(e.key === "Escape"){ e.preventDefault(); cancelEdit(); }
+        },
+        onblur: e => { if(editingId === n.id) finishEdit(e.target.value); }
+      }));
+      return;
+    }
+
+    const stop = e => e.stopPropagation();
+    const menuBtn = el("button", {
+      type:"button", class:"node-menu", tabindex:"-1", "aria-hidden":"true",
+      style:"border-color:" + c.line + ";color:" + c.line,
+      title:"Actions for this idea",
+      onpointerdown: stop,
+      onclick: e => { e.preventDefault(); stop(e); openNodeMenu(n.id, menuBtn); }
+    }, "\u22EF");
+    const addBtn = el("button", {
+      type:"button", class:"node-add", tabindex:"-1", "aria-hidden":"true",
+      style:"border-color:" + c.line + ";color:" + c.line,
+      title:"Add a sub-idea",
+      onpointerdown: stop,
+      onclick: e => { e.preventDefault(); stop(e); addChildAndEdit(n.id, "map"); }
+    }, "+");
+
+    const box = el("button", {
+      type:"button",
+      class:"node" + (isCurrent ? " is-current" : "") + (placing === n.id ? " is-moving" : "") + (n.id === map.rootId ? " is-root" : "")
+        + (kids.length ? "" : " is-leaf"),
+      style:"left:" + pos[n.id].x + "px;top:" + pos[n.id].y + "px;background:" + c.fill + ";border-color:" + c.line,
+      role: isPrimary ? "treeitem" : null,
+      "aria-level": isPrimary ? depthOf(map, n.id) + 1 : null,
+      "aria-expanded": isPrimary && kids.length ? (n.collapsed ? "false" : "true") : null,
+      "aria-selected": isPrimary ? (isCurrent ? "true" : "false") : null,
+      "aria-label": isPrimary ? accessibleName(map, n) : null,
+      tabindex: isPrimary ? (isCurrent ? "0" : "-1") : "-1",
+      "data-node-id": isPrimary ? n.id : null,
+      onclick: e => {
+        e.preventDefault();
+        if(box.dataset.dragged === "1"){ delete box.dataset.dragged; return; }
+        focusId = n.id;
+        pendingFocus = isPrimary ? '[data-node-id="' + n.id + '"]' : null;
+        render();
+      },
+      ondblclick: () => startEdit(n.id, "map"),
+      oncontextmenu: e => { e.preventDefault(); focusId = n.id; openNodeMenu(n.id, box); },
+      onkeydown: isPrimary ? onTreeKey : null,
+      onpointerdown: e => { if(!placing) beginDrag(e, map, n, pos, nodeEls, paths, box); }
+    },
+      el("span", { class:"glyph", "aria-hidden":"true", style:"color:" + c.line }, c.glyph),
+      el("span", { class:"ntext" }, n.label,
+        kids.length && n.collapsed ? el("span", { class:"kids" }, " (+" + kids.length + ")") : null),
+      menuBtn, addBtn
+    );
+    nodeEls[n.id] = box;
+    boxes.push(box);
+  });
+
+  const canvas = el("div", {
+    class:"canvas",
+    style:"transform:translate(" + panX + "px," + panY + "px) scale(" + zoom + ")",
+    role: isPrimary ? "tree" : null,
+    "aria-label": isPrimary ? "Ideas" : null,
+    "aria-hidden": isPrimary ? null : "true"
+  });
+  canvas.append(svg, ...boxes);
+
+  const scroll = el("div", {
+    class:"mapscroll" + (placing ? " is-placing" : ""),
+    onclick: e => { if(placing) placeAt(e.clientX, e.clientY, scroll); },
+    onpointerdown: e => { if(!placing) beginPan(e, scroll); },
+    onwheel: e => {
+      e.preventDefault();
+      if(e.ctrlKey || e.metaKey){
+        setZoom(zoom * (e.deltaY > 0 ? 0.92 : 1.08), e, scroll);
+      }else{
+        panX -= e.deltaX; panY -= e.deltaY;
+        canvas.style.transform = "translate(" + panX + "px," + panY + "px) scale(" + zoom + ")";
+      }
+    }
+  }, canvas);
+
+  return el("section", { class:"mapwrap", "aria-label":"Map" },
+    el("div", { class:"mapbar" },
+      el("span", { class:"label" }, "Map"),
+      view === "map" ? el("button", { class:"btn", onclick:showOutline }, "Show outline") : null,
+      el("span", { class:"grow" }),
+      el("span", { class:"colorname" },
+        placing ? "Arrow keys to nudge, Enter to drop, Escape to put it back." : "Drag an idea, or use its menu to move it without dragging."),
+      el("div", { class:"group", role:"group", "aria-label":"Move the view" },
+        el("button", { class:"btn btn-pan", title:"Move view left", onclick:() => nudgePan(140, 0) }, "\u2190"),
+        el("button", { class:"btn btn-pan", title:"Move view up", onclick:() => nudgePan(0, 140) }, "\u2191"),
+        el("button", { class:"btn btn-pan", title:"Move view down", onclick:() => nudgePan(0, -140) }, "\u2193"),
+        el("button", { class:"btn btn-pan", title:"Move view right", onclick:() => nudgePan(-140, 0) }, "\u2192")
+      ),
+      el("button", { class:"btn", title:"Zoom out", onclick:() => setZoom(zoom - 0.1) }, "\u2212"),
+      el("span", { class:"colorname", style:"min-width:3.2rem;text-align:center" }, Math.round(zoom * 100) + "%"),
+      el("button", { class:"btn", title:"Zoom in", onclick:() => setZoom(zoom + 0.1) }, "+"),
+      el("button", { class:"btn", onclick:() => { panX = 0; panY = 0; zoom = 1; render(); say("Map recentered."); } }, "Recenter")
+    ),
+    scroll
+  );
+}
+
+function setZoom(next){
+  zoom = Math.min(1.6, Math.max(0.4, Math.round(next * 20) / 20));
+  render();
+  say("Zoom " + Math.round(zoom * 100) + " percent.");
+}
+
+function curve(a, b){
+  // Organic S-curve rather than an elbow, so branches read as growth.
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const bend = 0.16;
+  return "M " + a.x + " " + a.y +
+         " Q " + (mx - dy * bend) + " " + (my + dx * bend) + " " + b.x + " " + b.y;
+}
+
+/* Dragging the background moves the viewport, not the map. Nothing in the
+   model changes, so there is nothing for a keyboard user to miss. */
+function beginPan(e, scroll){
+  if(e.target !== scroll && !e.target.classList.contains("canvas")) return;
+  const startX = e.clientX, startY = e.clientY, px = panX, py = panY;
+  const canvas = scroll.querySelector(".canvas");
+  scroll.classList.add("is-panning");
+  const onMove = ev => {
+    panX = px + (ev.clientX - startX);
+    panY = py + (ev.clientY - startY);
+    canvas.style.transform = "translate(" + panX + "px," + panY + "px) scale(" + zoom + ")";
+  };
+  const onUp = () => {
+    scroll.classList.remove("is-panning");
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+}
+
+/* Drag updates the DOM directly and only writes to the model on release, so
+   moving a big branch stays smooth and produces one change rather than fifty. */
+function beginDrag(e, map, node, pos, nodeEls, paths, box){
+  if(e.button !== 0 && e.pointerType === "mouse") return;
+  e.stopPropagation();
+  const startX = e.clientX, startY = e.clientY;
+  const moving = [node.id, ...descendants(map, node.id).map(n => n.id)].filter(id => pos[id]);
+  const origin = {};
+  moving.forEach(id => { origin[id] = { x: pos[id].x, y: pos[id].y }; });
+  let moved = false;
+
+  const onMove = ev => {
+    const dx = (ev.clientX - startX) / zoom, dy = (ev.clientY - startY) / zoom;
+    if(!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+    if(!moved){
+      moved = true;
+      box.classList.add("is-dragging");
+      if(box.setPointerCapture) try{ box.setPointerCapture(ev.pointerId); }catch(err){}
+    }
+    moving.forEach(id => {
+      pos[id].x = origin[id].x + dx;
+      pos[id].y = origin[id].y + dy;
+      if(nodeEls[id]){ nodeEls[id].style.left = pos[id].x + "px"; nodeEls[id].style.top = pos[id].y + "px"; }
+    });
+    Object.keys(paths).forEach(id => {
+      const p = map.nodes[id];
+      if(p && pos[id] && pos[p.parentId]) paths[id].setAttribute("d", curve(pos[p.parentId], pos[id]));
+    });
+  };
+  const onUp = ev => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    box.classList.remove("is-dragging");
+    if(!moved) return;
+    box.dataset.dragged = "1";            // stop the click handler firing after a drag
+    const dx = (ev.clientX - startX) / zoom, dy = (ev.clientY - startY) / zoom;
+    shiftBranch(map, node.id, dx, dy);
+    focusId = node.id;
+    pendingFocus = '[data-node-id="' + node.id + '"]';
+    commit(node.label + " moved. Its place in the outline has not changed.");
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+}
+
+/* ------------------------------------------------------------ interactions */
+function toggle(id){
+  const map = currentMap();
+  const node = map.nodes[id];
+  if(!childrenOf(map, id).length) return;
+  node.collapsed = !node.collapsed;
+  focusId = id;
+  pendingFocus = '[data-node-id="'+id+'"]';
+  commit(node.collapsed ? "Collapsed " + node.label + "." : "Expanded " + node.label + ".");
+}
+let editingPane = "outline";   // which pane owns the open editor
+
+/* Outline width. Kept in the tab, like the recovery copy, so it dies when the
+   tab closes and never becomes something left behind on a shared computer. */
+const WIDTH_KEY = "a11y-mindmap:outline-width";
+const MIN_W = 220, MAX_W = 640, DEFAULT_W = 380;
+let outlineW = (function(){
+  const n = parseInt(sessionStorage.getItem(WIDTH_KEY) || "", 10);
+  return (n >= MIN_W && n <= MAX_W) ? n : DEFAULT_W;
+})();
+function setOutlineW(px, quiet){
+  outlineW = Math.round(Math.min(MAX_W, Math.max(MIN_W, px)));
+  try{ sessionStorage.setItem(WIDTH_KEY, String(outlineW)); }catch(e){}
+  if(!quiet) say("Outline " + outlineW + " pixels wide.");
+}
+
+function startEdit(id, pane){
+  editingId = id;
+  editingPane = pane || (view === "map" ? "map" : "outline");
+  focusId = id;
+  pendingFocus = "#inline-edit";
+  render();
+}
+function finishEdit(value){
+  const map = currentMap();
+  const id = editingId;
+  editingId = null;
+  if(!map || !map.nodes[id]) { render(); return; }
+  map.nodes[id].label = (value || "").trim() || "Untitled idea";
+  pendingFocus = '[data-node-id="'+id+'"]';
+  commit("Renamed to " + map.nodes[id].label + ".");
+}
+function cancelEdit(){
+  const id = editingId;
+  editingId = null;
+  pendingFocus = '[data-node-id="'+id+'"]';
+  render();
+  say("Rename canceled.");
+}
+function addChildAndEdit(parentId, pane){
+  const map = currentMap();
+  const node = addChild(map, parentId);
+  if(!node) return;
+  ensurePositions(map);
+  focusId = node.id;
+  editingId = node.id;
+  editingPane = pane || (view === "map" ? "map" : "outline");
+  pendingFocus = "#inline-edit";
+  commit("Sub-idea added under " + map.nodes[parentId].label + ".");
+}
+function addSiblingAndEdit(id){
+  const map = currentMap();
+  const target = map.nodes[id];
+  if(!target.parentId) return addChildAndEdit(id);
+  const node = addChild(map, target.parentId);
+  node.order = target.order + 0.5;
+  resequence(map, target.parentId);
+  ensurePositions(map);
+  focusId = node.id;
+  editingId = node.id;
+  editingPane = view === "map" ? "map" : "outline";
+  pendingFocus = "#inline-edit";
+  commit("Idea added after " + target.label + ".");
+}
+function moveWithinSiblings(id, delta){
+  const map = currentMap();
+  const node = map.nodes[id];
+  if(!node.parentId) return say("The central idea cannot be moved.");
+  const sibs = childrenOf(map, node.parentId);
+  const i = sibs.findIndex(s => s.id === id);
+  const j = i + delta;
+  if(j < 0 || j >= sibs.length) return say("Already " + (delta < 0 ? "first" : "last") + " among its siblings.");
+  sibs.splice(j, 0, sibs.splice(i, 1)[0]);
+  sibs.forEach((s, k) => { s.order = k; });
+  pendingFocus = '[data-node-id="'+id+'"]';
+  commit("Moved " + (delta < 0 ? "up" : "down") + ". Now " + (j + 1) + " of " + sibs.length + ".");
+}
+function indent(id){
+  const map = currentMap();
+  const node = map.nodes[id];
+  if(!node.parentId) return say("The central idea cannot be moved.");
+  const sibs = childrenOf(map, node.parentId);
+  const i = sibs.findIndex(s => s.id === id);
+  if(i === 0) return say("Nothing above it to move under.");
+  const newParent = sibs[i - 1];
+  node.parentId = newParent.id;
+  node.order = childrenOf(map, newParent.id).length;
+  newParent.collapsed = false;
+  resequence(map, sibs[0].parentId);
+  pendingFocus = '[data-node-id="'+id+'"]';
+  commit("Moved under " + newParent.label + ".");
+}
+function outdent(id){
+  const map = currentMap();
+  const node = map.nodes[id];
+  const parent = node.parentId ? map.nodes[node.parentId] : null;
+  if(!parent || !parent.parentId) return say("Already at the top level.");
+  const grandparent = map.nodes[parent.parentId];
+  const oldParentId = parent.id;
+  node.parentId = grandparent.id;
+  node.order = parent.order + 0.5;
+  resequence(map, grandparent.id);
+  resequence(map, oldParentId);
+  pendingFocus = '[data-node-id="'+id+'"]';
+  commit("Moved out to sit alongside " + parent.label + ".");
+}
+function deleteFocused(id){
+  const map = currentMap();
+  if(id === map.rootId) return say("The central idea cannot be deleted.");
+  const node = map.nodes[id];
+  const kids = descendants(map, id).length;
+  const question = kids
+    ? 'Delete "' + node.label + '" and its ' + kids + ' sub-' + (kids === 1 ? "idea" : "ideas") + "?"
+    : 'Delete "' + node.label + '"?';
+  if(!confirm(question)) return;
+
+  // Land focus somewhere sensible rather than dumping the user at the top.
+  const list = visibleList(map);
+  const i = list.findIndex(n => n.id === id);
+  const doomed = new Set([id, ...descendants(map, id).map(n => n.id)]);
+  let next = null;
+  for(let k = i + 1; k < list.length; k++) if(!doomed.has(list[k].id)){ next = list[k].id; break; }
+  if(!next) for(let k = i - 1; k >= 0; k--) if(!doomed.has(list[k].id)){ next = list[k].id; break; }
+
+  const n = removeNode(map, id);
+  focusId = next || map.rootId;
+  pendingFocus = '[data-node-id="'+focusId+'"]';
+  commit(n === 1 ? "Idea deleted." : n + " ideas deleted.");
+}
+
+/* ---------------------------------------------------------- shortcut keys */
+/* Each action answers to several key combinations rather than one, and none
+   of them can be changed. That is deliberate.
+
+   The problem being solved is that browsers, extensions and screen readers
+   all claim key combinations, so any single choice is dead on someone's
+   machine. Letting students rebind keys solves that but adds a capture
+   handler, a stored preference, conflict checking and a migration path, four
+   things that can break, to a tool whose whole point is being simple. Giving
+   every action three or four spellings solves the same problem with none of
+   that: if one is taken, another works. The Shortcuts panel includes a box
+   for testing which ones reach the page, so a student can find out in
+   seconds rather than guessing.
+
+   Bindings are matched on e.code, the physical key, because on a Mac the
+   Option key changes the character produced. Option and M does not report
+   "m". */
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+
+const ACTIONS = [
+  { id:"menu",     label:"Open the actions menu",        keys:[{code:"KeyM",ctrl:true},{key:"Enter",alt:true},{code:"KeyM",alt:true},{key:"F10",shift:true},{key:"ContextMenu"}] },
+  { id:"rename",   label:"Rename this idea",             keys:[{key:"Enter"},{key:"F2"}] },
+  { id:"addChild", label:"Add a sub-idea underneath",    keys:[{key:"Enter",shift:true},{key:"Insert"}] },
+  { id:"addSib",   label:"Add an idea alongside",        keys:[{key:"Enter",ctrl:true},{key:"Enter",meta:true}] },
+  { id:"del",      label:"Delete this idea",             keys:[{key:"Delete"},{key:"Backspace"}] },
+  { id:"moveUp",   label:"Move up past the idea above",  keys:[{key:"ArrowUp",alt:true}] },
+  { id:"moveDown", label:"Move down past the one below", keys:[{key:"ArrowDown",alt:true}] },
+  { id:"indent",   label:"Move under the idea above",    keys:[{key:"ArrowRight",alt:true}] },
+  { id:"outdent",  label:"Move out one level",           keys:[{key:"ArrowLeft",alt:true}] },
+  { id:"help",     label:"Open the shortcuts list",      keys:[{key:"?",shift:true},{key:"?"}] }
+];
+
+
+function matchBinding(e, b){
+  if(!!b.ctrl !== e.ctrlKey) return false;
+  if(!!b.alt !== e.altKey) return false;
+  if(!!b.shift !== e.shiftKey) return false;
+  if(!!b.meta !== e.metaKey) return false;
+  return b.code ? e.code === b.code : e.key === b.key;
+}
+function matchAction(e){
+  for(const a of ACTIONS) if(a.keys.some(b => matchBinding(e, b))) return a.id;
+  return null;
+}
+function labelBinding(b){
+  const parts = [];
+  if(b.ctrl) parts.push("Ctrl");
+  if(b.alt) parts.push(IS_MAC ? "Option" : "Alt");
+  if(b.shift) parts.push("Shift");
+  if(b.meta) parts.push(IS_MAC ? "Cmd" : "Win");
+  let main = b.code
+    ? b.code.replace(/^Key/, "").replace(/^Digit/, "").replace(/^Numpad/, "Num ")
+    : b.key;
+  main = ({ ArrowUp:"\u2191", ArrowDown:"\u2193", ArrowLeft:"\u2190", ArrowRight:"\u2192",
+            " ":"Space", Escape:"Esc", ContextMenu:"Menu key", Delete:"Delete", Backspace:"Backspace" })[main] || main;
+  parts.push(main.length === 1 ? main.toUpperCase() : main);
+  return parts;
+}
+const actionOf = id => ACTIONS.find(a => a.id === id);
+const firstBindingLabel = id => {
+  const a = actionOf(id);
+  return a && a.keys[0] ? labelBinding(a.keys[0]).join("+") : "";
+};
+
+function runAction(action, id, anchor){
+  switch(action){
+    case "menu":     return openNodeMenu(id, anchor);
+    case "rename":   return startEdit(id, anchor && anchor.classList.contains("node") ? "map" : "outline");
+    case "addChild": return addChildAndEdit(id, anchor && anchor.classList.contains("node") ? "map" : "outline");
+    case "addSib":   return addSiblingAndEdit(id);
+    case "del":      return deleteFocused(id);
+    case "moveUp":   return moveWithinSiblings(id, -1);
+    case "moveDown": return moveWithinSiblings(id, 1);
+    case "indent":   return indent(id);
+    case "outdent":  return outdent(id);
+    case "help":     return openShortcuts();
+  }
+}
+
+/* One handler serves both panes, so the keyboard behaves identically
+   whichever one you are in. */
+function onTreeKey(e){
+  const map = currentMap();
+  if(!map || editingId) return;
+  const id = e.currentTarget.getAttribute("data-node-id");
+  if(!id || !map.nodes[id]) return;
+  const node = map.nodes[id];
+  const list = visibleList(map);
+  const i = list.findIndex(n => n.id === id);
+  const go = target => {
+    if(!target) return;
+    focusId = target;
+    pendingFocus = '[data-node-id="' + target + '"]';
+    render();
+  };
+  const kids = childrenOf(map, id);
+
+  // A move in progress takes the keyboard over completely, so the arrow keys
+  // move the cloud rather than walking the tree. The mode is announced on
+  // entry and has two obvious ways out.
+  if(placing === id){
+    const step = e.shiftKey ? 6 : 24;
+    switch(e.key){
+      case "ArrowUp":    e.preventDefault(); return nudgePlacing(0, -step);
+      case "ArrowDown":  e.preventDefault(); return nudgePlacing(0, step);
+      case "ArrowLeft":  e.preventDefault(); return nudgePlacing(-step, 0);
+      case "ArrowRight": e.preventDefault(); return nudgePlacing(step, 0);
+      case "Enter": case " ":
+        e.preventDefault(); return confirmPlacing();
+      case "Escape":
+        e.preventDefault(); return cancelPlacing();
+      default:
+        return;   // let anything else fall through untouched
+    }
+  }
+
+  // Rebindable actions win over the fixed navigation keys below.
+  const action = matchAction(e);
+  if(action){ e.preventDefault(); return runAction(action, id, e.currentTarget); }
+
+  // Navigation is deliberately not rebindable: it is the tree pattern every
+  // screen reader user already knows, and changing it would cost more than
+  // any collision it could avoid.
+  switch(e.key){
+    case "ArrowDown":
+      e.preventDefault(); return go(list[i + 1] ? list[i + 1].id : null);
+    case "ArrowUp":
+      e.preventDefault(); return go(list[i - 1] ? list[i - 1].id : null);
+    case "ArrowRight":
+      e.preventDefault();
+      if(kids.length && node.collapsed) return toggle(id);
+      if(kids.length) return go(kids[0].id);
+      return say("No sub-ideas.");
+    case "ArrowLeft":
+      e.preventDefault();
+      if(kids.length && !node.collapsed) return toggle(id);
+      return node.parentId ? go(node.parentId) : say("This is the central idea.");
+    case "Home":
+      e.preventDefault(); return go(list[0].id);
+    case "End":
+      e.preventDefault(); return go(list[list.length - 1].id);
+    default:
+      return;
+  }
+}
+
+
+/* ------------------------------------------------------------ file in, out */
+function download(name, text, type){
+  const blob = new Blob([text], { type: type || "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const safeName = s => (s || "mindmap").replace(/[^\w\d\-. ]+/g, "").trim() || "mindmap";
+
+function downloadMap(map){
+  download(safeName(titleOf(map)) + ".mindmap.json", JSON.stringify({ format:"a11y-mindmap", version:1, map }, null, 2));
+  if(map === openMap){ savedFingerprint = fingerprint(map); render(); }
+  say("Map saved to a file.");
+}
+function downloadOutline(map){
+  const lines = [];
+  (function walk(id, depth){
+    const n = map.nodes[id];
+    lines.push("  ".repeat(depth) + "- " + n.label);
+    childrenOf(map, id).forEach(c => walk(c.id, depth + 1));
+  })(map.rootId, 0);
+  download(safeName(titleOf(map)) + ".outline.md", "# " + titleOf(map) + "\n\n" + lines.join("\n") + "\n", "text/markdown");
+  say("Outline saved to a file.");
+}
+
+/* ------------------------------------------------------------ print / PDF */
+/* The reason this exists: a .mindmap.json file can only be read by this tool,
+   which makes grading a chore and makes the work unreadable to anyone without
+   it. A PDF previews inline in an LMS, can be annotated, and opens anywhere.
+   Students keep the JSON to carry on working; the PDF is the thing handed in. */
+function buildPrintView(map){
+  const root = document.getElementById("print-root");
+  const { pos, minX, minY, width, height } = layout(map);
+
+  // Fit to the printable area of a portrait Letter page, height as well as
+  // width, so a tall map is not cut off at the bottom.
+  const PAGE_W = 700, PAGE_H = 820;
+  const scale = Math.min(1, PAGE_W / width, PAGE_H / height);
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
+  svg.setAttribute("viewBox", minX + " " + minY + " " + width + " " + height);
+  svg.style.position = "absolute";
+  svg.style.left = minX + "px";
+  svg.style.top = minY + "px";
+
+  const all = visibleList(map);
+  all.forEach(n => {
+    if(!n.parentId || !pos[n.parentId]) return;
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", colorOf(n.color).line);
+    path.setAttribute("stroke-width", String(Math.max(1.2, 4 - depthOf(map, n.id))));
+    path.setAttribute("d", curve(pos[n.parentId], pos[n.id]));
+    svg.append(path);
+  });
+
+  const canvas = el("div", { class:"print-canvas",
+    style:"width:" + width + "px;height:" + height + "px;" +
+      "transform:scale(" + scale + ") translate(" + (-minX) + "px," + (-minY) + "px)" });
+  canvas.append(svg);
+  all.forEach(n => {
+    const c = colorOf(n.color);
+    canvas.append(el("div", {
+      class:"print-node",
+      style:"left:" + pos[n.id].x + "px;top:" + pos[n.id].y + "px;background:" + c.fill + ";border-color:" + c.line
+    },
+      el("span", { style:"color:" + c.line }, c.glyph),
+      el("span", {}, n.label)
+    ));
+  });
+
+  const outlineItem = node => {
+    const c = colorOf(node.color);
+    const kids = childrenOf(map, node.id);
+    return el("li", {},
+      el("div", { class:"print-row" },
+        el("span", { class:"print-chip", style:"background:" + c.fill + ";border-color:" + c.line }, c.glyph),
+        el("span", {}, node.label),
+        el("span", { class:"print-colorname" }, c.name)
+      ),
+      kids.length ? el("ul", {}, kids.map(outlineItem)) : null
+    );
+  };
+
+  root.replaceChildren(
+    el("div", { class:"print-head" },
+      el("h1", {}, titleOf(map)),
+      el("div", { class:"meta" },
+        (map.names ? map.names + "  \u00B7  " : "") +
+        Object.keys(map.nodes).length + " ideas  \u00B7  " +
+        new Date().toLocaleDateString())
+    ),
+    el("div", { class:"print-mapwrap",
+      style:"width:" + Math.ceil(width * scale) + "px;height:" + Math.ceil(height * scale) +
+            "px;position:relative;margin:0 auto" }, canvas),
+    el("div", { class:"print-outline" },
+      el("h2", {}, "Outline"),
+      el("ul", {}, outlineItem(map.nodes[map.rootId])))
+  );
+}
+
+function printMap(){
+  const map = currentMap();
+  if(!map) return;
+  openDialog((panel, close) => {
+    const input = el("input", {
+      id:"print-names", class:"edit", style:"width:100%;margin:.3rem 0 .2rem",
+      value: map.names || "", placeholder:"e.g. Sam, Priya, Alex"
+    });
+    const go = () => {
+      map.names = input.value.trim();
+      writeRecovery(map);
+      close();
+      buildPrintView(map);
+      // Let the dialog finish tearing down before the print sheet opens.
+      setTimeout(() => window.print(), 60);
+    };
+    panel.append(
+      el("h2", { id:"dialog-title", text:"Print or save as PDF" }),
+      el("p", { style:"color:var(--ink-soft)" },
+        "This prints the map and the outline together. To hand it in, choose Save as PDF as the destination in the print box."),
+      el("label", { for:"print-names", style:"font-weight:600" }, "Names to show at the top (optional)"),
+      input,
+      el("p", { class:"fineprint" },
+        "Keep your .mindmap.json file too. The PDF cannot be reopened for editing; the map file can."),
+      el("div", { class:"dialog-actions" },
+        el("button", { class:"btn", onclick:close }, "Cancel"),
+        el("button", { class:"btn btn-primary", onclick:go }, "Continue to print"))
+    );
+  });
+}
+window.addEventListener("afterprint", () => {
+  const root = document.getElementById("print-root");
+  if(root) root.replaceChildren();
+});
+
+function openImport(){
+  const input = el("input", { type:"file", accept:".json,application/json", class:"sr-only" });
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const parsed = JSON.parse(String(reader.result));
+        const result = importAny(parsed, file.name);
+        if(!result){ alert("That file is not a mind map this tool recognizes."); return; }
+        openMap = result.map;
+        savedFingerprint = fingerprint(result.map);
+        focusId = result.map.rootId;
+        view = "both"; panX = 0; panY = 0; zoom = 1;
+        pendingFocus = '[data-node-id="' + result.map.rootId + '"]';
+        commit(result.report);
+        if(result.notes.length) alert("Opened " + titleOf(result.map) + "\n\n" + result.notes.join("\n"));
+      }catch(err){
+        console.warn(err);
+        alert("That file could not be read. It may not be valid JSON.");
+      }
+    };
+    reader.readAsText(file);
+  });
+  document.body.append(input);
+  input.click();
+  setTimeout(() => input.remove(), 0);
+}
+
+function importAny(parsed, filename){
+  if(parsed && parsed.format === "a11y-mindmap" && parsed.map){
+    const map = migrate(parsed.map);
+    map.id = uid();
+    map.updatedAt = Date.now();
+    return { map, report:"Map opened.", notes:[] };
+  }
+  if(parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)){
+    return convertFlowMap(parsed, filename);
+  }
+  return null;
+}
+
+/* Converts the existing React Flow export (positioned nodes plus directed
+   edges) into an authored tree. This is the migration path: run it once,
+   and from then on structure is stored rather than inferred.
+
+   The interesting part is what it has to cope with, and every one of these
+   is a real thing a student can currently produce:
+     - more than one edge pointing at the same node
+     - edges that loop back and create a cycle
+     - nodes connected to nothing
+     - several disconnected clusters with no single root                     */
+function convertFlowMap(src, filename){
+  const notes = [];
+  const byId = {};
+  src.nodes.forEach(n => {
+    byId[n.id] = {
+      id: n.id,
+      label: (n.data && n.data.label) || "Untitled idea",
+      hex: (n.data && n.data.color) || "",
+      isRoot: !!(n.data && n.data.isRoot),
+      x: (n.position && n.position.x) || 0,
+      y: (n.position && n.position.y) || 0
+    };
+  });
+
+  const outgoing = {};
+  const incomingCount = {};
+  let extraEdges = 0;
+  src.edges.forEach(e => {
+    if(!byId[e.source] || !byId[e.target]) return;
+    (outgoing[e.source] = outgoing[e.source] || []).push(e.target);
+    incomingCount[e.target] = (incomingCount[e.target] || 0) + 1;
+    if(incomingCount[e.target] > 1) extraEdges++;
+  });
+
+  let rootId = (src.nodes.find(n => n.data && n.data.isRoot) || {}).id;
+  if(!rootId) rootId = Object.keys(byId).find(id => !incomingCount[id]);
+  if(!rootId) rootId = Object.keys(byId)[0];
+  if(!rootId) return null;
+
+  // Breadth-first from the root. First arrival wins, which drops the extra
+  // edges and breaks any cycles without hanging.
+  const parentOf = { [rootId]: null };
+  const seen = new Set([rootId]);
+  const queue = [rootId];
+  while(queue.length){
+    const cur = queue.shift();
+    const kids = (outgoing[cur] || []).slice().sort((a, b) =>
+      (byId[a].y - byId[b].y) || (byId[a].x - byId[b].x));
+    kids.forEach(k => {
+      if(seen.has(k)) return;
+      seen.add(k);
+      parentOf[k] = cur;
+      queue.push(k);
+    });
+  }
+
+  const stranded = Object.keys(byId).filter(id => !seen.has(id));
+  stranded
+    .sort((a, b) => (byId[a].y - byId[b].y) || (byId[a].x - byId[b].x))
+    .forEach(id => { parentOf[id] = rootId; seen.add(id); });
+
+  // Nearest color by hue, so imported maps keep their look while every
+  // node lands on a fill that actually passes contrast.
+  const hueOf = hex => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+    if(!m) return null;
+    const v = parseInt(m[1], 16);
+    const r = ((v >> 16) & 255) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if(d < 0.20) return null;                       // gray enough to be slate
+    let h;
+    if(max === r) h = ((g - b) / d) % 6;
+    else if(max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    return h < 0 ? h + 360 : h;
+  };
+  const hexToColorId = hex => {
+    const h = hueOf(hex);
+    if(h === null) return "slate";
+    let best = "slate", bestD = Infinity;
+    COLORS.forEach(c => {
+      if(c.id === "slate") return;                  // slate is the gray fallback, not a hue
+      const ch = hueOf(c.line);
+      if(ch === null) return;
+      const d = Math.min(Math.abs(h - ch), 360 - Math.abs(h - ch));
+      if(d < bestD){ bestD = d; best = c.id; }
+    });
+    return best;
+  };
+
+  const map = {
+    id: uid(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    rootId,
+    nodes: {}
+  };
+  Object.keys(byId).forEach(id => {
+    map.nodes[id] = {
+      id,
+      label: byId[id].label,
+      parentId: parentOf[id] === undefined ? rootId : parentOf[id],
+      order: 0,
+      color: hexToColorId(byId[id].hex),
+      collapsed: false
+    };
+  });
+  map.nodes[rootId].parentId = null;
+  if(!byId[rootId].label || byId[rootId].label === "Untitled idea"){
+    map.nodes[rootId].label = src.title || filename.replace(/\.json$/i, "") || "Imported map";
+  }
+
+  // Sibling order comes from the old on-screen positions, top to bottom.
+  const groups = {};
+  Object.values(map.nodes).forEach(n => { (groups[n.parentId] = groups[n.parentId] || []).push(n); });
+  Object.values(groups).forEach(g => {
+    g.sort((a, b) => (byId[a.id].y - byId[b.id].y) || (byId[a.id].x - byId[b.id].x));
+    g.forEach((n, i) => { n.order = i; });
+  });
+
+  const count = Object.keys(map.nodes).length;
+  if(stranded.length) notes.push(stranded.length + " idea(s) were not connected to the central idea. They have been attached to it so nothing was lost.");
+  if(extraEdges) notes.push(extraEdges + " extra connection(s) were dropped. A tree gives each idea one parent; those links were cross-references, not parents.");
+  if(!src.nodes.some(n => n.data && n.data.isRoot)) notes.push("No central idea was marked in the file, so the first idea with nothing pointing at it was used.");
+  notes.push("Sibling order was taken from where the boxes sat on screen, top to bottom. Check it reads the way you expect.");
+
+  return { map, report: "Imported " + count + " ideas.", notes };
+}
+
+/* ------------------------------------------------------------- bar menus */
+/* Grouping the file and help commands behind two buttons is what gets the
+   toolbar onto one line. It also keeps the number of things competing for
+   attention small, which matters more than the line count. */
+function openBarMenu(anchor, label, entries){
+  if(closeMenu) closeMenu();
+  const menu = el("div", { class:"menu", role:"menu", "aria-label":label });
+
+  const items = () => [...menu.querySelectorAll('[role="menuitem"]')].filter(b => !b.disabled);
+  function close(restore){
+    document.getElementById("menu-root").replaceChildren();
+    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("pointerdown", onOutside, true);
+    closeMenu = null;
+    anchor.setAttribute("aria-expanded", "false");
+    if(restore !== false && anchor.focus) anchor.focus();
+  }
+  function onOutside(e){ if(!menu.contains(e.target) && e.target !== anchor) close(true); }
+  function onKey(e){
+    const list = items(), i = list.indexOf(document.activeElement);
+    if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); return close(true); }
+    if(e.key === "Tab"){ e.preventDefault(); return close(true); }
+    if(e.key === "ArrowDown"){ e.preventDefault(); return (list[i + 1] || list[0]).focus(); }
+    if(e.key === "ArrowUp"){ e.preventDefault(); return (list[i - 1] || list[list.length - 1]).focus(); }
+    if(e.key === "Home"){ e.preventDefault(); return list[0].focus(); }
+    if(e.key === "End"){ e.preventDefault(); return list[list.length - 1].focus(); }
+  }
+
+  entries.forEach(entry => {
+    if(entry === "-"){ menu.append(el("hr", {})); return; }
+    menu.append(el("button", {
+      type:"button", role:"menuitem", tabindex:"-1",
+      onclick: () => { close(false); entry.run(); }
+    }, el("span", {}, entry.label), entry.note ? el("span", { class:"keys" }, entry.note) : null));
+  });
+
+  document.getElementById("menu-root").replaceChildren(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 12)) + "px";
+  menu.style.top = Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 12) + "px";
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("pointerdown", onOutside, true);
+  closeMenu = close;
+  anchor.setAttribute("aria-expanded", "true");
+  const first = items()[0];
+  if(first) first.focus();
+}
+
+function barMenuButton(label, entries){
+  const b = el("button", {
+    class:"btn", "aria-haspopup":"menu", "aria-expanded":"false",
+    onclick: () => openBarMenu(b, label, entries)
+  }, label, el("span", { class:"caret", "aria-hidden":"true" }, "\u25BE"));
+  return b;
+}
+
+/* ---------------------------------------------------------- actions menu */
+/* One menu, both panes. The "..." triggers are mouse-only and hidden from
+   assistive tech, because a treeitem must not contain its own focus stops.
+   Keyboard users open the identical menu with Shift+F10 or the Menu key,
+   which is the convention screen reader users already expect. Nothing here
+   is reachable by one input method and not the other. */
+let closeMenu = null;
+
+function openNodeMenu(id, anchor){
+  if(closeMenu) closeMenu();
+  const map = currentMap();
+  const node = map.nodes[id];
+  if(!node) return;
+
+  const isRoot = id === map.rootId;
+  const sibs = node.parentId ? childrenOf(map, node.parentId) : [];
+  const at = sibs.findIndex(s => s.id === id);
+  const parent = node.parentId ? map.nodes[node.parentId] : null;
+  const kids = childrenOf(map, id);
+
+  const menuPane = anchor && anchor.closest && anchor.closest(".mapwrap") ? "map" : "outline";
+  const menu = el("div", { class:"menu", role:"menu", "aria-label":"Actions for " + node.label });
+  const run = fn => { close(false); fn(); };
+
+  const item = (label, keys, fn, disabled) => el("button", {
+    type:"button", role:"menuitem", tabindex:"-1", disabled: disabled ? true : null,
+    onclick: () => { if(!disabled) run(fn); }
+  }, el("span", {}, label), keys ? el("span", { class:"keys" }, keys) : null);
+
+  menu.append(
+    item("Rename", firstBindingLabel("rename"), () => startEdit(id, menuPane)),
+    item("Add sub-idea", firstBindingLabel("addChild"), () => addChildAndEdit(id, menuPane)),
+    item("Add alongside", firstBindingLabel("addSib"), () => addSiblingAndEdit(id), isRoot),
+    el("hr", {}),
+    item("Move this idea", "arrows or click", () => startPlacing(id)),
+    el("hr", {}),
+    item(kids.length && node.collapsed ? "Expand" : "Collapse", null, () => toggle(id), !kids.length),
+    item("Move up", firstBindingLabel("moveUp"), () => moveWithinSiblings(id, -1), isRoot || at <= 0),
+    item("Move down", firstBindingLabel("moveDown"), () => moveWithinSiblings(id, 1), isRoot || at < 0 || at >= sibs.length - 1),
+    item("Move under the idea above", firstBindingLabel("indent"), () => indent(id), isRoot || at <= 0),
+    item("Move out one level", firstBindingLabel("outdent"), () => outdent(id), isRoot || !parent || !parent.parentId),
+    el("hr", {}),
+    el("p", { class:"grouplabel", id:"menu-color-label" }, "Color"),
+    el("div", { role:"group", "aria-labelledby":"menu-color-label" },
+      COLORS.map(c => el("button", {
+        type:"button", role:"menuitemradio", tabindex:"-1",
+        "aria-checked": node.color === c.id ? "true" : "false",
+        onclick: () => run(() => {
+          map.nodes[id].color = c.id;
+          pendingFocus = '[data-node-id="' + id + '"]';
+          commit("Color changed to " + c.name + ".");
+        })
+      },
+        el("span", { class:"swatch", "aria-hidden":"true", style:"background:" + c.fill + ";border-color:" + c.line }, c.glyph),
+        el("span", {}, c.name),
+        node.color === c.id ? el("span", { class:"tick", "aria-hidden":"true" }, "\u2713") : null
+      ))
+    ),
+    el("hr", {}),
+    item("Delete", firstBindingLabel("del"), () => deleteFocused(id), isRoot)
+  );
+
+  const items = () => [...menu.querySelectorAll('[role="menuitem"],[role="menuitemradio"]')].filter(b => !b.disabled);
+
+  function close(restoreFocus){
+    document.getElementById("menu-root").replaceChildren();
+    document.removeEventListener("keydown", onKey, true);
+    document.removeEventListener("pointerdown", onOutside, true);
+    closeMenu = null;
+    if(restoreFocus !== false){
+      const back = document.querySelector('[data-node-id="' + id + '"]');
+      if(back) back.focus();
+    }
+  }
+  function onOutside(e){ if(!menu.contains(e.target)) close(true); }
+  function onKey(e){
+    const list = items();
+    const i = list.indexOf(document.activeElement);
+    if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); return close(true); }
+    if(e.key === "Tab"){ e.preventDefault(); return close(true); }
+    if(e.key === "ArrowDown"){ e.preventDefault(); return (list[i + 1] || list[0]).focus(); }
+    if(e.key === "ArrowUp"){ e.preventDefault(); return (list[i - 1] || list[list.length - 1]).focus(); }
+    if(e.key === "Home"){ e.preventDefault(); return list[0].focus(); }
+    if(e.key === "End"){ e.preventDefault(); return list[list.length - 1].focus(); }
+  }
+
+  document.getElementById("menu-root").replaceChildren(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px";
+  menu.style.top = Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 12) + "px";
+
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("pointerdown", onOutside, true);
+  closeMenu = close;
+  const first = items()[0];
+  if(first) first.focus();
+  say("Actions menu for " + node.label + ". Use the arrow keys, Escape to close.");
+}
+
+/* ---------------------------------------------------------------- dialogs */
+/* Focus moves in, is trapped while open, Escape closes, and focus returns to
+   whatever opened it. This is the pattern the current publish modal is
+   missing. */
+let closeDialog = null;
+
+function openDialog(build){
+  const opener = document.activeElement;
+  const root = document.getElementById("dialog-root");
+
+  const panel = el("div", { class:"dialog", role:"dialog", "aria-modal":"true", "aria-labelledby":"dialog-title" });
+  const backdrop = el("div", { class:"backdrop", onmousedown: e => { if(e.target === backdrop) close(); } }, panel);
+
+  function close(){
+    if(panel._cleanup) panel._cleanup();
+    root.replaceChildren();
+    document.removeEventListener("keydown", onKey, true);
+    closeDialog = null;
+    if(opener && opener.focus) opener.focus();
+  }
+  function onKey(e){
+    if(e.key === "Escape"){ e.preventDefault(); close(); return; }
+    if(e.key !== "Tab") return;
+    const f = panel.querySelectorAll('button,[href],input,select,textarea,[tabindex]:not([tabindex="-1"])');
+    if(!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+  }
+
+  build(panel, close);
+  root.replaceChildren(backdrop);
+  document.addEventListener("keydown", onKey, true);
+  closeDialog = close;
+  const target = panel.querySelector("button,input,select") || panel;
+  target.focus();
+}
+
+function openAccessibility(){
+  openDialog((panel, close) => {
+    const sec = (title, items) => [
+      el("h3", { class:"grouplabel", style:"padding-left:0", text:title }),
+      el("ul", { class:"plainlist" }, items.map(t => el("li", {}, t)))
+    ];
+    panel.append(
+      el("h2", { id:"dialog-title", text:"Accessibility" }),
+      el("p", { style:"color:var(--ink-soft)" },
+        "What to expect if you use a keyboard, a screen reader, magnification, or you find dragging difficult."),
+
+      ...sec("Keyboard", [
+        "Tab moves between the toolbar, the outline and the map. Inside the tree, one Tab stop holds your place and the arrow keys move between ideas.",
+        "Arrow up and down step through ideas in reading order. Right opens a branch or moves into it. Left closes a branch or moves out to the parent.",
+        "Enter renames. Shift and Enter adds a sub-idea. Delete removes an idea and everything under it.",
+        "Alt with the arrow keys changes what an idea means: reorder it among its neighbours, tuck it under the one above, or move it out a level.",
+        "Every one of these is also in the Actions menu, so no shortcut is required to do anything.",
+        "Choosing Move this idea hands the arrow keys over to moving that idea around the map until you press Enter or Escape. It is announced when it starts and the idea is outlined the whole time, so you always know which mode you are in.",
+        "See Shortcuts for the full list, including what to do if a key does nothing on your computer."
+      ]),
+
+      ...sec("Screen readers", [
+        "The outline is a standard tree. Ideas are announced with their name, color, and how many sub-ideas they hold, always in that order.",
+        "Levels, position among siblings, and open or closed state are all exposed, so you can tell where you are without seeing the picture.",
+        "The map is a picture of the same tree. Whichever view is showing carries the structure; the other is hidden so nothing is read twice.",
+        "Actions are announced as they happen. Moving an idea on screen says out loud that its place in the outline has not changed.",
+        "Screen reader testing so far is limited. If something reads wrongly or in a confusing order, that is worth reporting rather than working around."
+      ]),
+
+      ...sec("Seeing the map", [
+        "Ideas use dark text on light fills. Every color clears the AA contrast minimum by a wide margin, and the measured figures are in the project notes.",
+        "Color never carries meaning on its own. Each color has its own shape marker, and its name is written in the outline and spoken by screen readers.",
+        "Zoom in and out from the map bar, or use your browser zoom. The layout reflows down to a phone-sized window.",
+        "Focus is shown with a thick outline that is never removed, only replaced with something stronger."
+      ]),
+
+      ...sec("If dragging is difficult", [
+        "Nothing needs to be dragged. Choose Move this idea in its Actions menu, then either click where you want it or nudge it with the arrow keys. Enter drops it, Escape puts it back.",
+        "The view moves with the arrow buttons in the map bar, and Recenter brings everything back.",
+        "Moving an idea brings its sub-ideas with it, so a branch keeps its shape wherever you put it.",
+        "Every button is at least 24 pixels, and the ones on an idea appear whenever it is hovered or focused."
+      ]),
+
+      ...sec("Motion and reading", [
+        "There is no animation beyond a brief color change on buttons, and that is switched off if your system asks for reduced motion.",
+        "Nothing moves, flashes, or times out on its own. There is no time limit anywhere in this tool.",
+        "The outline prints cleanly if you would rather read it on paper, and Save outline gives you a plain text version."
+      ]),
+
+      ...sec("What has been checked", [
+        "Keyboard focus stays visible and reachable at 100, 200, 300 and 400 percent browser zoom, and in a narrow window.",
+        "Automated checks against WCAG 2.2 A and AA pass on both screens.",
+        "Every color combination was measured for contrast rather than eyeballed.",
+        "Nothing requires dragging, and nothing requires a mouse.",
+        "No shortcut uses a plain letter or punctuation key on its own, so dictation into the page cannot trigger one by accident."
+      ]),
+
+      ...sec("Still to verify", [
+        "Screen reader testing is not finished. The structure is built to the standard tree pattern and reads correctly in checking so far, but it has not been through JAWS or NVDA, and nobody has sat with a regular screen reader user and watched them work.",
+        "Voice control software has not been tried. Every control has a visible name that matches its spoken name, which is what that depends on, but it has not been confirmed in practice."
+      ]),
+
+      ...sec("Things this tool does not do", [
+        "An idea has one parent. You cannot link across branches, and any such links in a file made by an older tool are dropped when it is opened.",
+        "An idea holds a name and a color. There is nowhere to attach a note, a link, or a longer description.",
+        "There is no general undo. Escape backs out of a rename or a move before you finish it, and deleting asks first, but a confirmed delete is final.",
+        "Shortcuts cannot be changed. Each action answers to several combinations instead, and the Actions menu works when every one of them is taken on your computer."
+      ]),
+
+      el("p", { class:"fineprint" },
+        "This tool is built and maintained in-house, so problems can actually be fixed. If something here gets in your way, say so."),
+      el("div", { class:"dialog-actions" },
+        el("button", { class:"btn", onclick:() => { close(); openShortcuts(); } }, "Keyboard shortcuts"),
+        el("button", { class:"btn btn-primary", onclick:close }, "Close"))
+    );
+  });
+}
+
+function openShortcuts(){
+  openDialog((panel, close) => {
+    const keyRun = b => labelBinding(b).map((k, i) => [i ? " " : "", el("kbd", { text:k })]).flat();
+    const fixed = (keys, what) => [
+      el("dt", {}, keys.map((k, i) => [i ? " " : "", el("kbd", { text:k })]).flat()),
+      el("dd", { text:what })
+    ];
+
+    /* A student whose browser has taken a combination has no way to tell
+       that apart from the tool being broken. Here they can press it and see:
+       if nothing appears, the page never received it. */
+    const readout = el("p", { class:"testout", id:"key-readout", "aria-live":"polite" },
+      el("em", {}, "Nothing pressed yet."));
+    const tester = el("div", {
+      class:"keytest", tabindex:"0", role:"group",
+      "aria-label":"Test a key combination", "aria-describedby":"key-readout",
+      onkeydown: e => {
+        if(e.key === "Tab") return;                       // leave a way out
+        if(["Shift","Control","Alt","Meta"].includes(e.key)) return;
+        e.preventDefault();
+        const b = { ctrl:e.ctrlKey, alt:e.altKey, shift:e.shiftKey, meta:e.metaKey };
+        if(/^(Key|Digit|Numpad)/.test(e.code || "")) b.code = e.code; else b.key = e.key;
+        const hit = ACTIONS.find(a => a.keys.some(x => matchBinding(e, x)));
+        readout.replaceChildren(
+          el("span", {}, "This page received: "), ...keyRun(b),
+          el("span", {}, hit ? "  \u2713 " + hit.label : "  \u2014 not used by this tool")
+        );
+      }
+    }, el("strong", {}, "Press a combination here"),
+       el("span", { class:"fineprint" },
+         " If nothing shows up below, your browser or another program has taken that combination and this tool will never see it. Use one of the alternatives listed above."));
+
+    panel.append(
+      el("h2", { id:"dialog-title", text:"Keyboard shortcuts" }),
+      el("p", { style:"color:var(--ink-soft)" },
+        "Every action is also in the Actions menu on each idea, so you never need a shortcut for anything. " +
+        "Where several keys are listed, any of them works. They are alternatives, not steps."),
+
+      el("h3", { class:"grouplabel", style:"padding-left:0", text:"Moving around" }),
+      el("dl", {},
+        fixed(["\u2191","\u2193"], "Previous or next idea"),
+        fixed(["\u2192"], "Open a closed idea, or move to its first sub-idea"),
+        fixed(["\u2190"], "Close an open idea, or move up to its parent"),
+        fixed(["Home","End"], "First or last idea on screen"),
+        fixed(["Tab"], "Move in and out of the tree"),
+        fixed(["Esc"], "Cancel a rename, close a menu, or stop moving an idea")
+      ),
+
+      el("h3", { class:"grouplabel", style:"padding-left:0", text:"Working with an idea" }),
+      el("ul", { class:"keylist" }, ACTIONS.map(a => el("li", { class:"keyrow" },
+        el("span", { class:"keyname" }, a.label),
+        el("span", { class:"keyvals" }, a.keys.map((b, i) => [
+          i ? el("span", { class:"colorname" }, " or ") : null,
+          el("span", {}, keyRun(b))
+        ]).flat())
+      ))),
+
+      el("h3", { class:"grouplabel", style:"padding-left:0", text:"Moving an idea around the map" }),
+      el("dl", {},
+        fixed(["\u2191","\u2193","\u2190","\u2192"], "Nudge it, once you have chosen Move this idea from its Actions menu"),
+        fixed(["Shift","+ arrow"], "Nudge it in smaller steps"),
+        fixed(["Enter"], "Drop it where it is"),
+        fixed(["Esc"], "Put it back where it was")
+      ),
+
+      el("h3", { class:"grouplabel", style:"padding-left:0", text:"If a shortcut does nothing" }),
+      tester,
+      readout,
+
+      el("div", { class:"dialog-actions" },
+        el("button", { class:"btn", onclick:() => { close(); openAccessibility(); } }, "Accessibility"),
+        el("button", { class:"btn btn-primary", onclick:close }, "Close"))
+    );
+  });
+}
+
+const openHelp = openShortcuts;   // older call sites
+
+
+/* --------------------------------------------------------------- rendering */
+function render(){
+  if(closeMenu) closeMenu(false);
+  if(openMap) renderEditor(); else renderStart();
+  if(pendingFocus){
+    const target = document.querySelector(pendingFocus);
+    pendingFocus = null;
+    if(target){
+      target.focus();
+      if(target.select) try{ target.select(); }catch(e){}
+    }
+  }
+  keepFocusVisible();
+}
+
+/* 2.4.11 Focus Not Obscured. The map pans itself so the focused cloud is
+   never left off screen or hidden behind the toolbar. MARGIN is a little
+   larger than the toolbar so the cloud lands clear of it rather than flush
+   against the edge. */
+function keepFocusVisible(){
+  if(!openMap) return;
+  const scroll = document.querySelector(".mapscroll");
+  const canvas = scroll && scroll.querySelector(".canvas");
+  if(!scroll || !canvas) return;
+  const node = scroll.querySelector('.node[data-node-id="' + focusId + '"]')
+            || scroll.querySelector(".node.is-current");
+  if(!node) return;
+
+  const box = scroll.getBoundingClientRect();
+  const n = node.getBoundingClientRect();
+  if(!box.width || !n.width) return;          // not laid out yet
+
+  const MARGIN = 56;
+  let dx = 0, dy = 0;
+  if(n.left   < box.left   + MARGIN) dx = (box.left + MARGIN) - n.left;
+  if(n.right  > box.right  - MARGIN) dx = (box.right - MARGIN) - n.right;
+  if(n.top    < box.top    + MARGIN) dy = (box.top + MARGIN) - n.top;
+  if(n.bottom > box.bottom - MARGIN) dy = (box.bottom - MARGIN) - n.bottom;
+  if(!dx && !dy) return;
+
+  panX += dx; panY += dy;
+  canvas.style.transform = "translate(" + panX + "px," + panY + "px) scale(" + zoom + ")";
+}
+
+document.addEventListener("keydown", e => {
+  if(placing && e.key === "Escape"){ e.preventDefault(); return cancelPlacing(); }
+  if(closeDialog) return;
+  // Deliberately no page-wide "?" shortcut. See ACTIONS: it is bound only on a
+  // focused idea, which is the "active only on focus" route through 2.1.4.
+});
+
+render();
+</script>
+</body>
+</html>
