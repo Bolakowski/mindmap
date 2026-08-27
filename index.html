@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mind Map (accessible prototype)</title>
+<title>Mind Map</title>
 <style>
 :root{
   --page:#ffffff;
@@ -67,6 +67,7 @@ header .bar h1{font-size:1.05rem;font-weight:650;letter-spacing:-.01em}
   min-height:24px;min-width:24px;      /* 2.5.8 Target Size (Minimum) */
 }
 .btn-pan{padding:.25rem;width:28px;height:28px;line-height:1}
+.btn-icon{padding:.3rem;width:30px;height:30px;line-height:1;font-size:1.05rem}
 .btn:hover{background:var(--surface);border-color:var(--ink-soft)}
 .btn[aria-pressed="true"]{background:var(--ink);color:#fff;border-color:var(--ink)}
 .btn-primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
@@ -152,6 +153,17 @@ li.item{margin:.15rem 0}
 }
 .label{min-width:0;overflow-wrap:break-word}
 .colorname{font-size:.72rem;color:var(--ink-soft);white-space:nowrap}
+.notetext{
+  margin:.1rem 0 .35rem 3.15rem;padding-left:.6rem;
+  border-left:2px solid var(--line-soft);
+  font-size:.85rem;color:var(--ink-soft);overflow-wrap:break-word;
+}
+.noteflag{color:var(--ink-soft);font-size:.8em}
+.notebox{
+  width:100%;padding:.55rem .65rem;border:1px solid var(--line);border-radius:8px;
+  font:inherit;resize:vertical;min-height:6rem;
+}
+.notebox:focus{border-color:var(--focus)}
 .edit{
   flex:1 1 auto;min-width:0;padding:.15rem .35rem;
   border:2px solid var(--focus);border-radius:6px;background:#fff;
@@ -216,7 +228,17 @@ li.item{margin:.15rem 0}
   position:fixed;z-index:60;min-width:15rem;
   background:var(--page);border:1px solid var(--line);border-radius:10px;
   box-shadow:0 8px 28px rgba(15,23,42,.20);padding:.3rem;
+  overflow-y:auto;overscroll-behavior:contain;   /* scroll rather than overflow the window */
 }
+/* Colors as a swatch grid rather than eight full rows. This is most of what
+   keeps the menu short enough to fit. Each swatch still carries its color
+   name as its accessible name, so nothing is lost to a screen reader. */
+.swatchgrid{display:flex;flex-wrap:wrap;gap:.25rem;padding:.15rem .35rem .35rem}
+.menu .swatchgrid button{
+  width:32px;height:32px;padding:0;border:2px solid;border-radius:8px;
+  display:inline-flex;align-items:center;justify-content:center;font-size:.85rem;
+}
+.menu .swatchgrid button[aria-checked="true"]{box-shadow:0 0 0 2px var(--focus)}
 .menu button{
   display:flex;align-items:center;gap:.55rem;width:100%;
   background:none;border:0;border-radius:7px;padding:.42rem .6rem;
@@ -356,6 +378,10 @@ ul.keylist{list-style:none;margin:.3rem 0 0;padding:0;display:grid;gap:.35rem}
     display:inline-flex;align-items:center;justify-content:center;font-size:7pt;
   }
   .print-colorname{font-size:8pt;color:#4b5563}
+  .print-note{
+    margin:.1rem 0 .3rem 1.6rem;padding-left:.5rem;
+    border-left:2px solid #cbd5e1;font-size:9pt;color:#374151;
+  }
 }
 </style>
 </head>
@@ -549,10 +575,64 @@ const currentMap = () => openMap;
 const fingerprint = map => map ? JSON.stringify(map.nodes) + "|" + map.rootId : null;
 const hasUnsavedWork = () => !!openMap && fingerprint(openMap) !== savedFingerprint;
 
+/* -------------------------------------------------------------- undo ----
+   Every change funnels through commit(), so undo can be built there rather
+   than threaded through each operation. commit() keeps the state as it was
+   before the change and stacks it, along with the message describing what
+   happened, so undo can say what it is undoing rather than just "undone".
+
+   Whole-map snapshots are used instead of per-operation inverses. Maps are
+   small, students make one change at a time, and a snapshot cannot get out
+   of step with the thing it is meant to reverse. */
+const UNDO_MAX = 50;
+let undoStack = [], redoStack = [], prevSnapshot = null;
+
+const snapshot = map => JSON.stringify(map);
+
+function resetHistory(map){
+  undoStack = []; redoStack = [];
+  prevSnapshot = map ? snapshot(map) : null;
+}
+
+function restoreSnapshot(json){
+  openMap = JSON.parse(json);
+  if(!openMap.nodes[focusId]) focusId = openMap.rootId;
+  editingId = null; placing = null; placeOrigin = null;
+  ensurePositions(openMap);
+  writeRecovery(openMap);
+  pendingFocus = '[data-node-id="' + focusId + '"]';
+  render();
+}
+
+function undo(){
+  if(!undoStack.length) return say("Nothing to undo.");
+  const entry = undoStack.pop();
+  redoStack.push({ json: snapshot(openMap), label: entry.label });
+  prevSnapshot = entry.json;
+  restoreSnapshot(entry.json);
+  say(entry.label ? "Undone: " + entry.label : "Undone.");
+}
+
+function redo(){
+  if(!redoStack.length) return say("Nothing to redo.");
+  const entry = redoStack.pop();
+  undoStack.push({ json: snapshot(openMap), label: entry.label });
+  prevSnapshot = entry.json;
+  restoreSnapshot(entry.json);
+  say(entry.label ? "Redone: " + entry.label : "Redone.");
+}
+
 function commit(message){
   if(openMap){
     openMap.updatedAt = Date.now();
     ensurePositions(openMap);
+    const now = snapshot(openMap);
+    if(prevSnapshot !== null && prevSnapshot !== now){
+      undoStack.push({ json: prevSnapshot, label: message || "" });
+      if(undoStack.length > UNDO_MAX) undoStack.shift();
+      redoStack = [];
+    }
+    prevSnapshot = now;
     writeRecovery(openMap);
   }
   render();
@@ -577,6 +657,7 @@ function finishUp(){
   }
   clearRecovery();
   try{ sessionStorage.removeItem(WIDTH_KEY); }catch(e){}
+  resetHistory(null);
   openMap = null;
   savedFingerprint = null;
   focusId = null;
@@ -762,6 +843,10 @@ function accessibleName(map, node){
   const parts = [node.label, colorOf(node.color).name];
   if(node.id === map.rootId) parts.push("central idea");
   parts.push(kids === 0 ? "no sub-ideas" : kids === 1 ? "1 sub-idea" : kids + " sub-ideas");
+  // The note goes last so it never delays the parts a listener is waiting for,
+  // and it is read in full rather than announced as "has a note", which would
+  // leave a screen reader user unable to reach the content from the tree.
+  if(node.note) parts.push("note: " + node.note);
   return parts.join(", ");
 }
 
@@ -776,6 +861,8 @@ function renderStart(){
     focusId = map.rootId;
     view = "both"; panX = 0; panY = 0; zoom = 1;
     pendingFocus = "#map-title";
+    ensurePositions(map);
+    resetHistory(map);
     writeRecovery(map);
     render();
   };
@@ -893,6 +980,12 @@ function renderEditor(){
         }
       }),
       el("div", { class:"group seg", role:"group", "aria-label":"View" }, viewBtn("both","Both"), viewBtn("outline","Outline"), viewBtn("map","Map")),
+      el("div", { class:"group", role:"group", "aria-label":"Undo and redo" },
+        el("button", { class:"btn btn-icon", title:"Undo", "aria-label":"Undo",
+          disabled: undoStack.length ? null : true, onclick:undo }, "\u21B6"),
+        el("button", { class:"btn btn-icon", title:"Redo", "aria-label":"Redo",
+          disabled: redoStack.length ? null : true, onclick:redo }, "\u21B7")
+      ),
       el("button", { class:"btn", onclick:() => { addChildAndEdit(focusId); } }, "Add"),
       (function(){
         const b = el("button", { class:"btn", "aria-haspopup":"menu", onclick:() => openNodeMenu(focusId, b) },
@@ -1045,6 +1138,9 @@ function renderOutlinePane(map, isPrimary){
 
     return el("li", { class:"item", role: isPrimary ? "none" : null },
       row,
+      node.note && editingId !== node.id
+        ? el("p", { class:"notetext", "aria-hidden": isPrimary ? "true" : null }, node.note)
+        : null,
       kids.length && !node.collapsed
         ? el("ul", { role: isPrimary ? "group" : null }, kids.map(itemFor))
         : null
@@ -1242,6 +1338,7 @@ function renderMapPane(map, isPrimary){
     },
       el("span", { class:"glyph", "aria-hidden":"true", style:"color:" + c.line }, c.glyph),
       el("span", { class:"ntext" }, n.label,
+        n.note ? el("span", { class:"noteflag", "aria-hidden":"true", title:"Has a note" }, " \u270E") : null,
         kids.length && n.collapsed ? el("span", { class:"kids" }, " (+" + kids.length + ")") : null),
       menuBtn, addBtn
     );
@@ -1544,6 +1641,7 @@ const ACTIONS = [
   { id:"rename",   label:"Rename this idea",             keys:[{key:"Enter"},{key:"F2"}] },
   { id:"addChild", label:"Add a sub-idea underneath",    keys:[{key:"Enter",shift:true},{key:"Insert"}] },
   { id:"addSib",   label:"Add an idea alongside",        keys:[{key:"Enter",ctrl:true},{key:"Enter",meta:true}] },
+  { id:"note",     label:"Add or edit a note",           keys:[{code:"KeyN",ctrl:true},{code:"KeyN",alt:true}] },
   { id:"del",      label:"Delete this idea",             keys:[{key:"Delete"},{key:"Backspace"}] },
   { id:"moveUp",   label:"Move up past the idea above",  keys:[{key:"ArrowUp",alt:true}] },
   { id:"moveDown", label:"Move down past the one below", keys:[{key:"ArrowDown",alt:true}] },
@@ -1590,6 +1688,7 @@ function runAction(action, id, anchor){
     case "rename":   return startEdit(id, anchor && anchor.classList.contains("node") ? "map" : "outline");
     case "addChild": return addChildAndEdit(id, anchor && anchor.classList.contains("node") ? "map" : "outline");
     case "addSib":   return addSiblingAndEdit(id);
+    case "note":     return editNote(id);
     case "del":      return deleteFocused(id);
     case "moveUp":   return moveWithinSiblings(id, -1);
     case "moveDown": return moveWithinSiblings(id, 1);
@@ -1687,6 +1786,7 @@ function downloadOutline(map){
   (function walk(id, depth){
     const n = map.nodes[id];
     lines.push("  ".repeat(depth) + "- " + n.label);
+    if(n.note) lines.push("  ".repeat(depth + 1) + "> " + n.note);
     childrenOf(map, id).forEach(c => walk(c.id, depth + 1));
   })(map.rootId, 0);
   download(safeName(titleOf(map)) + ".outline.md", "# " + titleOf(map) + "\n\n" + lines.join("\n") + "\n", "text/markdown");
@@ -1751,6 +1851,7 @@ function buildPrintView(map){
         el("span", {}, node.label),
         el("span", { class:"print-colorname" }, c.name)
       ),
+      node.note ? el("p", { class:"print-note" }, node.note) : null,
       kids.length ? el("ul", {}, kids.map(outlineItem)) : null
     );
   };
@@ -1802,6 +1903,11 @@ function printMap(){
     );
   });
 }
+window.addEventListener("resize", () => {
+  const m = document.querySelector("#menu-root .menu");
+  if(m && m._anchor) placeMenu(m, m._anchor);
+});
+
 window.addEventListener("afterprint", () => {
   const root = document.getElementById("print-root");
   if(root) root.replaceChildren();
@@ -1819,6 +1925,8 @@ function openImport(){
         const result = importAny(parsed, file.name);
         if(!result){ alert("That file is not a mind map this tool recognizes."); return; }
         openMap = result.map;
+        ensurePositions(result.map);
+        resetHistory(result.map);
         savedFingerprint = fingerprint(result.map);
         focusId = result.map.rootId;
         view = "both"; panX = 0; panY = 0; zoom = 1;
@@ -1980,6 +2088,38 @@ function convertFlowMap(src, filename){
   return { map, report: "Imported " + count + " ideas.", notes };
 }
 
+/* Position a menu next to its trigger without letting it leave the window.
+   The previous version only pushed a menu up when it ran past the bottom
+   edge, which silently moved the top of a tall menu above the top of the
+   window, where it could be neither seen nor scrolled to. Now the menu takes
+   whichever side has more room, is capped to the space available, and scrolls
+   inside itself if it still does not fit. */
+const MENU_GAP = 6, MENU_EDGE = 10;
+
+function placeMenu(menu, anchor){
+  menu._anchor = anchor;
+  const r = anchor.getBoundingClientRect();
+  const vh = window.innerHeight, vw = window.innerWidth;
+  const below = vh - r.bottom - MENU_GAP - MENU_EDGE;
+  const above = r.top - MENU_GAP - MENU_EDGE;
+
+  menu.style.maxHeight = "none";
+  // Fall back to the full available space if the height cannot be measured
+  // yet, so the menu is never capped to nothing.
+  const wanted = menu.offsetHeight || menu.scrollHeight || 0;
+
+  if(!wanted || wanted <= below || below >= above){
+    menu.style.maxHeight = Math.max(140, below) + "px";
+    menu.style.top = Math.max(MENU_EDGE, r.bottom + MENU_GAP) + "px";
+  }else{
+    const h = Math.min(wanted, Math.max(140, above));
+    menu.style.maxHeight = h + "px";
+    menu.style.top = Math.max(MENU_EDGE, r.top - MENU_GAP - h) + "px";
+  }
+  menu.style.left = Math.max(MENU_EDGE,
+    Math.min(r.left, vw - menu.offsetWidth - MENU_EDGE)) + "px";
+}
+
 /* ------------------------------------------------------------- bar menus */
 /* Grouping the file and help commands behind two buttons is what gets the
    toolbar onto one line. It also keeps the number of things competing for
@@ -2002,10 +2142,10 @@ function openBarMenu(anchor, label, entries){
     const list = items(), i = list.indexOf(document.activeElement);
     if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); return close(true); }
     if(e.key === "Tab"){ e.preventDefault(); return close(true); }
-    if(e.key === "ArrowDown"){ e.preventDefault(); return (list[i + 1] || list[0]).focus(); }
-    if(e.key === "ArrowUp"){ e.preventDefault(); return (list[i - 1] || list[list.length - 1]).focus(); }
-    if(e.key === "Home"){ e.preventDefault(); return list[0].focus(); }
-    if(e.key === "End"){ e.preventDefault(); return list[list.length - 1].focus(); }
+    if(e.key === "ArrowDown"){ e.preventDefault(); return focusItem(list[i + 1] || list[0]); }
+    if(e.key === "ArrowUp"){ e.preventDefault(); return focusItem(list[i - 1] || list[list.length - 1]); }
+    if(e.key === "Home"){ e.preventDefault(); return focusItem(list[0]); }
+    if(e.key === "End"){ e.preventDefault(); return focusItem(list[list.length - 1]); }
   }
 
   entries.forEach(entry => {
@@ -2017,9 +2157,7 @@ function openBarMenu(anchor, label, entries){
   });
 
   document.getElementById("menu-root").replaceChildren(menu);
-  const r = anchor.getBoundingClientRect();
-  menu.style.left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 12)) + "px";
-  menu.style.top = Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 12) + "px";
+  placeMenu(menu, anchor);
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("pointerdown", onOutside, true);
   closeMenu = close;
@@ -2067,6 +2205,7 @@ function openNodeMenu(id, anchor){
 
   menu.append(
     item("Rename", firstBindingLabel("rename"), () => startEdit(id, menuPane)),
+    item(node.note ? "Edit note" : "Add a note", firstBindingLabel("note"), () => editNote(id)),
     item("Add sub-idea", firstBindingLabel("addChild"), () => addChildAndEdit(id, menuPane)),
     item("Add alongside", firstBindingLabel("addSib"), () => addSiblingAndEdit(id), isRoot),
     el("hr", {}),
@@ -2079,26 +2218,26 @@ function openNodeMenu(id, anchor){
     item("Move out one level", firstBindingLabel("outdent"), () => outdent(id), isRoot || !parent || !parent.parentId),
     el("hr", {}),
     el("p", { class:"grouplabel", id:"menu-color-label" }, "Color"),
-    el("div", { role:"group", "aria-labelledby":"menu-color-label" },
+    el("div", { class:"swatchgrid", role:"group", "aria-labelledby":"menu-color-label" },
       COLORS.map(c => el("button", {
         type:"button", role:"menuitemradio", tabindex:"-1",
+        "aria-label": c.name + (node.color === c.id ? ", current" : ""),
+        title: c.name,
         "aria-checked": node.color === c.id ? "true" : "false",
+        style:"background:" + c.fill + ";border-color:" + c.line + ";color:" + c.line,
         onclick: () => run(() => {
           map.nodes[id].color = c.id;
           pendingFocus = '[data-node-id="' + id + '"]';
           commit("Color changed to " + c.name + ".");
         })
-      },
-        el("span", { class:"swatch", "aria-hidden":"true", style:"background:" + c.fill + ";border-color:" + c.line }, c.glyph),
-        el("span", {}, c.name),
-        node.color === c.id ? el("span", { class:"tick", "aria-hidden":"true" }, "\u2713") : null
-      ))
+      }, c.glyph))
     ),
     el("hr", {}),
     item("Delete", firstBindingLabel("del"), () => deleteFocused(id), isRoot)
   );
 
   const items = () => [...menu.querySelectorAll('[role="menuitem"],[role="menuitemradio"]')].filter(b => !b.disabled);
+  const focusItem = b => { if(b){ b.focus(); if(b.scrollIntoView) b.scrollIntoView({ block:"nearest" }); } };
 
   function close(restoreFocus){
     document.getElementById("menu-root").replaceChildren();
@@ -2116,16 +2255,14 @@ function openNodeMenu(id, anchor){
     const i = list.indexOf(document.activeElement);
     if(e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); return close(true); }
     if(e.key === "Tab"){ e.preventDefault(); return close(true); }
-    if(e.key === "ArrowDown"){ e.preventDefault(); return (list[i + 1] || list[0]).focus(); }
-    if(e.key === "ArrowUp"){ e.preventDefault(); return (list[i - 1] || list[list.length - 1]).focus(); }
-    if(e.key === "Home"){ e.preventDefault(); return list[0].focus(); }
-    if(e.key === "End"){ e.preventDefault(); return list[list.length - 1].focus(); }
+    if(e.key === "ArrowDown"){ e.preventDefault(); return focusItem(list[i + 1] || list[0]); }
+    if(e.key === "ArrowUp"){ e.preventDefault(); return focusItem(list[i - 1] || list[list.length - 1]); }
+    if(e.key === "Home"){ e.preventDefault(); return focusItem(list[0]); }
+    if(e.key === "End"){ e.preventDefault(); return focusItem(list[list.length - 1]); }
   }
 
   document.getElementById("menu-root").replaceChildren(menu);
-  const r = anchor.getBoundingClientRect();
-  menu.style.left = Math.min(r.left, window.innerWidth - menu.offsetWidth - 12) + "px";
-  menu.style.top = Math.min(r.bottom + 6, window.innerHeight - menu.offsetHeight - 12) + "px";
+  placeMenu(menu, anchor);
 
   document.addEventListener("keydown", onKey, true);
   document.addEventListener("pointerdown", onOutside, true);
@@ -2173,6 +2310,39 @@ function openDialog(build){
   target.focus();
 }
 
+function editNote(id){
+  const map = currentMap();
+  const node = map.nodes[id];
+  if(!node) return;
+  openDialog((panel, close) => {
+    const box = el("textarea", {
+      id:"note-box", class:"notebox", rows:"6",
+      "aria-describedby":"note-hint"
+    });
+    box.value = node.note || "";
+    const save = () => {
+      const text = box.value.trim();
+      const had = !!node.note;
+      if(text) node.note = text; else delete node.note;
+      close();
+      pendingFocus = '[data-node-id="' + id + '"]';
+      commit(text ? (had ? "Note updated on " + node.label + "." : "Note added to " + node.label + ".")
+                  : "Note removed from " + node.label + ".");
+    };
+    panel.append(
+      el("h2", { id:"dialog-title" }, "Note on \u201C" + node.label + "\u201D"),
+      el("p", { id:"note-hint", style:"color:var(--ink-soft)" },
+        "Anything that does not fit in the idea's name: a definition, a source, a question to come back to. It is read out with the idea by a screen reader and it appears on the printed outline."),
+      el("label", { class:"sr-only", for:"note-box" }, "Note text"),
+      box,
+      el("div", { class:"dialog-actions" },
+        node.note ? el("button", { class:"btn btn-danger", onclick:() => { box.value = ""; save(); } }, "Remove note") : null,
+        el("button", { class:"btn", onclick:close }, "Cancel"),
+        el("button", { class:"btn btn-primary", onclick:save }, "Save note"))
+    );
+  });
+}
+
 function openAccessibility(){
   openDialog((panel, close) => {
     const sec = (title, items) => [
@@ -2187,7 +2357,8 @@ function openAccessibility(){
       ...sec("Keyboard", [
         "Tab moves between the toolbar, the outline and the map. Inside the tree, one Tab stop holds your place and the arrow keys move between ideas.",
         "Arrow up and down step through ideas in reading order. Right opens a branch or moves into it. Left closes a branch or moves out to the parent.",
-        "Enter renames. Shift and Enter adds a sub-idea. Delete removes an idea and everything under it.",
+        "Enter renames. Shift and Enter adds a sub-idea. Ctrl and N adds a note. Delete removes an idea and everything under it.",
+        "Ctrl and Z undoes, and Ctrl and Shift and Z redoes. This works anywhere on the page, not only inside the tree.",
         "Alt with the arrow keys changes what an idea means: reorder it among its neighbours, tuck it under the one above, or move it out a level.",
         "Every one of these is also in the Actions menu, so no shortcut is required to do anything.",
         "Choosing Move this idea hands the arrow keys over to moving that idea around the map until you press Enter or Escape. It is announced when it starts and the idea is outlined the whole time, so you always know which mode you are in.",
@@ -2199,6 +2370,7 @@ function openAccessibility(){
         "Levels, position among siblings, and open or closed state are all exposed, so you can tell where you are without seeing the picture.",
         "The map is a picture of the same tree. Whichever view is showing carries the structure; the other is hidden so nothing is read twice.",
         "Actions are announced as they happen. Moving an idea on screen says out loud that its place in the outline has not changed.",
+        "A note attached to an idea is read out with it, so the content is reachable from the tree rather than only from the dialog that edits it.",
         "Screen reader testing so far is limited. If something reads wrongly or in a confusing order, that is worth reporting rather than working around."
       ]),
 
@@ -2213,6 +2385,7 @@ function openAccessibility(){
         "Nothing needs to be dragged. Choose Move this idea in its Actions menu, then either click where you want it or nudge it with the arrow keys. Enter drops it, Escape puts it back.",
         "The view moves with the arrow buttons in the map bar, and Recenter brings everything back.",
         "Moving an idea brings its sub-ideas with it, so a branch keeps its shape wherever you put it.",
+        "Anything undone by mistake can be redone. Undo goes back through the last fifty changes and says out loud what it undid.",
         "Every button is at least 24 pixels, and the ones on an idea appear whenever it is hovered or focused."
       ]),
 
@@ -2237,8 +2410,6 @@ function openAccessibility(){
 
       ...sec("Things this tool does not do", [
         "An idea has one parent. You cannot link across branches, and any such links in a file made by an older tool are dropped when it is opened.",
-        "An idea holds a name and a color. There is nowhere to attach a note, a link, or a longer description.",
-        "There is no general undo. Escape backs out of a rename or a move before you finish it, and deleting asks first, but a confirmed delete is final.",
         "Shortcuts cannot be changed. Each action answers to several combinations instead, and the Actions menu works when every one of them is taken on your computer."
       ]),
 
@@ -2331,6 +2502,13 @@ const openHelp = openShortcuts;   // older call sites
 
 
 /* --------------------------------------------------------------- rendering */
+function updateTabTitle(){
+  const base = "Mind Map";
+  document.title = openMap
+    ? (hasUnsavedWork() ? "\u2022 " : "") + titleOf(openMap) + " \u2014 " + base
+    : base;
+}
+
 function render(){
   if(closeMenu) closeMenu(false);
   if(openMap) renderEditor(); else renderStart();
@@ -2342,6 +2520,7 @@ function render(){
       if(target.select) try{ target.select(); }catch(e){}
     }
   }
+  updateTabTitle();
   keepFocusVisible();
 }
 
@@ -2376,6 +2555,13 @@ function keepFocusVisible(){
 
 document.addEventListener("keydown", e => {
   if(placing && e.key === "Escape"){ e.preventDefault(); return cancelPlacing(); }
+
+  if(openMap && !editingId && (e.ctrlKey || e.metaKey)){
+    const t = e.target;
+    const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA");
+    if(!typing && e.code === "KeyZ"){ e.preventDefault(); return e.shiftKey ? redo() : undo(); }
+    if(!typing && e.code === "KeyY"){ e.preventDefault(); return redo(); }
+  }
   if(closeDialog) return;
   // Deliberately no page-wide "?" shortcut. See ACTIONS: it is bound only on a
   // focused idea, which is the "active only on focus" route through 2.1.4.
